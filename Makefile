@@ -12,15 +12,23 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-CFLAGS := -g -Wall
-CXXFLAGS := -g -Wall
-TSXS := /opt/trafficserver/bin/tsxs
+TS := /opt/trafficserver
+TSXS := $(TS)/bin/tsxs
 SUDO := sudo
+
+CXX := clang++
+CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
+
+CPPFLAGS := \
+	-I/opt/trafficserver/include \
+	-Isrc/lib
+
+LinkBundle = $(CXX) -bundle -Wl,-bundle_loader,$(TS)/bin/traffic_server -o $@ $<
 
 SOURCES := \
 	src/ts/spdy.cc
 
-OBJECTS := $(SOURCES:.cc=.lo)
+OBJECTS := $(SOURCES:.cc=.o)
 TARGETS := spdy.so
 
 all: $(TARGETS)
@@ -28,8 +36,8 @@ all: $(TARGETS)
 install: spdy.so
 	$(SUDO) $(TSXS) -i -o $<
 
-spdy.so: $(SOURCES)
-	$(TSXS) -o $@ -C $<
+spdy.so: $(OBJECTS)
+	$(LinkBundle)
 
 clean:
 	rm -f $(TARGETS) $(OBJECTS)
