@@ -16,6 +16,7 @@
 
 #include <ts/ts.h>
 #include <stdlib.h>
+#include <spdy/spdy.h>
 
 struct spdy_io_control
 {
@@ -35,6 +36,7 @@ spdy_io_control::spdy_io_control(TSVConn v) : vconn(v)
 {
     iobuf = TSIOBufferCreate();
     reader = TSIOBufferReaderAlloc(iobuf);
+    TSIOBufferWaterMarkSet(iobuf, spdy::message_header::size);
 }
 
 spdy_io_control::~spdy_io_control()
@@ -42,6 +44,50 @@ spdy_io_control::~spdy_io_control()
     TSVConnClose(vconn);
     TSIOBufferReaderFree(reader);
     TSIOBufferDestroy(iobuf);
+}
+
+static void
+consume_spdy_frame(spdy_io_control * io)
+{
+    spdy::message_header    header;
+    TSIOBufferBlock	    blk;
+    const uint8_t *	    ptr;
+    int64_t		    nbytes;
+
+next_frame:
+
+    blk = TSIOBufferStart(io->iobuf);
+    ptr = (const uint8_t *)TSIOBufferBlockReadStart(blk, io->reader, &nbytes);
+    TSReleaseAssert(nbytes >= spdy::message_header::size);
+
+    header = spdy::message_header::parse(ptr, (size_t)nbytes);
+    TSAssert(header.datalen > 0); // XXX
+
+    if (header.is_control) {
+	TSError("SPDY control frame, version=%u type=%u flags=0x%x, %zu bytes",
+		header.control.version, header.control.type,
+		header.flags, header.datalen);
+    } else {
+	TSError("SPDY data frame, stream=%u flags=0x%x, %zu bytes",
+		header.control.version, header.data.stream_id,
+		header.flags, header.datalen);
+    }
+
+    if (header.datalen <= (nbytes - spdy::message_header::size)) {
+	// We have all the data in-hand ... parse it.
+	TSIOBufferReaderConsume(io->reader, spdy::message_header::size);
+	TSIOBufferReaderConsume(io->reader, header.datalen);
+
+	// XXX it might be nice to actually *do* something with the frame
+
+	if (TSIOBufferReaderAvail(io->reader) >= spdy::message_header::size) {
+	    goto next_frame;
+	}
+    }
+
+    // Push the high water mark to the end of the frame so that we don't get
+    // called back until we have the whole thing.
+    TSIOBufferWaterMarkSet(io->iobuf, spdy::message_header::size + header.datalen);
 }
 
 static int
@@ -53,7 +99,7 @@ spdy_read(TSCont contp, TSEvent event, void * edata)
 
     switch (event) {
     case TS_EVENT_NET_ACCEPT:
-	TSAssert(contp == NULL);
+	TSAssert(contp == nullptr);
 	vconn = (TSVConn)edata;
 	io = new spdy_io_control(vconn);
 	contp = TSContCreate(spdy_read, TSMutexCreate());
@@ -65,8 +111,12 @@ spdy_read(TSCont contp, TSEvent event, void * edata)
 	io = spdy_io_control::get(contp);
 	// what is edata at this point?
 	nbytes = TSIOBufferReaderAvail(io->reader);
-	TSIOBufferReaderConsume(io->reader, nbytes);
 	TSError("received %d bytes", nbytes);
+	if ((unsigned)nbytes >= spdy::message_header::size) {
+	    consume_spdy_frame(io);
+	} else {
+	    TSIOBufferReaderConsume(io->reader, nbytes);
+	}
 	break;
     case TS_EVENT_VCONN_EOS: // fallthru
     default:
@@ -85,7 +135,7 @@ spdy_accept(TSCont /* contp */, TSEvent event, void * edata)
     switch (event) {
     case TS_EVENT_NET_ACCEPT:
 	TSError("accepting connection, go set up a session");
-	return spdy_read(NULL, event, edata);
+	return spdy_read(nullptr, event, edata);
     default:
 	TSError("unexpected accept event %d", (int)event);
     }

@@ -17,16 +17,20 @@ TSXS := $(TS)/bin/tsxs
 SUDO := sudo
 
 CXX := clang++
-CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
+
+# Don't use libc++ yet; there's weird unexpected linker problems
+# CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
+CXXFLAGS := -std=c++0x -g -Wall -Wextra
 
 CPPFLAGS := \
 	-I/opt/trafficserver/include \
 	-Isrc/lib
 
-LinkBundle = $(CXX) -bundle -Wl,-bundle_loader,$(TS)/bin/traffic_server -o $@ $<
+LinkBundle = $(CXX) -bundle -Wl,-bundle_loader,$(TS)/bin/traffic_server -o $@ $^
 
 SOURCES := \
-	src/ts/spdy.cc
+	src/ts/spdy.cc \
+	src/lib/spdy/message.cc
 
 OBJECTS := $(SOURCES:.cc=.o)
 TARGETS := spdy.so

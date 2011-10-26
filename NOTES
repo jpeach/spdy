@@ -1,0 +1,13 @@
+Testing with Google Chrome
+==========================
+
+Use the following command-line to have Chrome proxy all requests through the
+SPDY proxy at localhost:9999:
+
+    chrome --use-spdy=no-ssl --host-resolver-rules="MAP * localhost:9999"
+
+Resources
+=========
+
+    * http://mbelshe.github.com/SPDY-Specification/draft-mbelshe-spdy-00.xml
+    * http://www.chromium.org/spdy/spdy-tools-and-debugging
