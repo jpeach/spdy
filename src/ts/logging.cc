@@ -15,6 +15,7 @@
  */
 
 #include <ts/ts.h>
+#include <spdy/spdy.h>
 #include "logging.h"
 
 template <typename T>
@@ -23,6 +24,18 @@ struct named_value
     const char * name;
     T value;
 };
+
+template <typename T, unsigned N> const char *
+match(const named_value<T> (&names)[N], const T& value)
+{
+    for (unsigned i = 0; i < N; ++i) {
+        if (names[i].value == value) {
+            return names[i].name;
+        }
+    }
+
+    return "";
+}
 
 static const named_value<unsigned> event_names[] =
 {
@@ -100,13 +113,25 @@ static const named_value<unsigned> event_names[] =
 template<> std::string
 stringof<TSEvent>(const TSEvent& ev)
 {
-    for (unsigned i = 0; i < countof(event_names); ++i) {
-        if (event_names[i].value == ev) {
-            return event_names[i].name;
-        }
-    }
+    return match(event_names, (unsigned)ev);
+}
 
-    return  "";
+static const named_value<unsigned> control_names[] =
+{
+    { "CONTROL_SYN_STREAM", 1 },
+    { "CONTROL_SYN_REPLY", 2 },
+    { "CONTROL_RST_STREAM", 3 },
+    { "CONTROL_SETTINGS", 4 },
+    { "CONTROL_PING", 6 },
+    { "CONTROL_GOAWAY", 7 },
+    { "CONTROL_HEADERS", 8 },
+    { "CONTROL_WINDOW_UPDATE", 9}
+};
+
+template<> std::string
+stringof<spdy::control_frame_type>(const spdy::control_frame_type& ev)
+{
+    return match(control_names, (unsigned)ev);
 }
 
 /* vim: set sw=4 ts=4 tw=79 et : */

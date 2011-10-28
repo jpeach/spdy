@@ -8,20 +8,34 @@
 
 #include <inttypes.h>
 #include <stddef.h>
+#include <stdexcept>
 
 #define SPDY_MAX_FRAME_LENGTH  (1u << 24)
 
 namespace spdy {
 
-    enum frame_type
-    {
-        syn_frame = 1,
-        syn_reply,
-        rst_stream
+    enum : unsigned {
+        PROTOCOL_VERSION = 3
     };
 
-    enum error : uint32_t
-    {
+    struct protocol_error : public std::runtime_error {
+        explicit protocol_error(const std::string& msg)
+            : std::runtime_error(msg) {
+        }
+    };
+
+    enum control_frame_type : unsigned {
+        CONTROL_SYN_STREAM      = 1,
+        CONTROL_SYN_REPLY       = 2,
+        CONTROL_RST_STREAM      = 3,
+        CONTROL_SETTINGS        = 4,
+        CONTROL_PING            = 6,
+        CONTROL_GOAWAY          = 7,
+        CONTROL_HEADERS         = 8,
+        CONTROL_WINDOW_UPDATE   = 9
+    };
+
+    enum error : unsigned {
         PROTOCOL_ERROR        = 1,
         INVALID_STREAM        = 2,
         REFUSED_STREAM        = 3,
@@ -54,11 +68,11 @@ namespace spdy {
     {
         union {
             struct {
-                uint16_t    version;
-                uint16_t    type;
+                unsigned version;
+                control_frame_type type;
             } control;
             struct {
-                uint32_t    stream_id;
+                unsigned stream_id;
             } data;
         };
 
@@ -68,6 +82,42 @@ namespace spdy {
 
         static message_header parse(const uint8_t *, size_t);
         static const unsigned size = 8; /* bytes */
+    };
+
+    // SYN_STREAM frame:
+    //
+    // +------------------------------------+
+    // |1|    version    |         1        |
+    // +------------------------------------+
+    // |  Flags (8)  |  Length (24 bits)    |
+    // +------------------------------------+
+    // |X|           Stream-ID (31bits)     |
+    // +------------------------------------+
+    // |X| Associated-To-Stream-ID (31bits) |
+    // +------------------------------------+
+    // |  Pri | Unused    |                 |
+    // +------------------+                 |
+    // | Number of Name/Value pairs (int32) |   <+
+    // +------------------------------------+    |
+    // |     Length of name (int32)         |    | This section is the "Name/Value
+    // +------------------------------------+    | Header Block", and is compressed.
+    // |           Name (string)            |    |
+    // +------------------------------------+    |
+    // |     Length of value  (int32)       |    |
+    // +------------------------------------+    |
+    // |          Value   (string)          |    |
+    // +------------------------------------+    |
+    // |           (repeats)                |   <+
+
+    struct syn_stream_message
+    {
+        unsigned stream_id;
+        unsigned associated_id;
+        unsigned priority;
+        unsigned header_count;
+
+        static syn_stream_message parse(const uint8_t *, size_t);
+        static const unsigned size = 12; /* bytes */
     };
 
 } // namespace spdy
