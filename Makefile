@@ -30,6 +30,7 @@ LinkBundle = $(CXX) -bundle -Wl,-bundle_loader,$(TS)/bin/traffic_server -o $@ $^
 
 SOURCES := \
 	src/ts/spdy.cc \
+	src/ts/logging.cc \
 	src/lib/spdy/message.cc
 
 OBJECTS := $(SOURCES:.cc=.o)
@@ -39,6 +40,7 @@ all: $(TARGETS)
 
 install: spdy.so
 	$(SUDO) $(TSXS) -i -o $<
+	$(SUDO) $(TS)/bin/trafficserver restart
 
 spdy.so: $(OBJECTS)
 	$(LinkBundle)

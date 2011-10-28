@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <spdy/spdy.h>
 
+#include "logging.h"
+
 struct spdy_io_control
 {
     spdy_io_control(TSVConn);
@@ -64,11 +66,11 @@ next_frame:
     TSAssert(header.datalen > 0); // XXX
 
     if (header.is_control) {
-	TSError("SPDY control frame, version=%u type=%u flags=0x%x, %zu bytes",
+	debug_protocol("SPDY control frame, version=%u type=%u flags=0x%x, %zu bytes",
 		header.control.version, header.control.type,
 		header.flags, header.datalen);
     } else {
-	TSError("SPDY data frame, stream=%u flags=0x%x, %zu bytes",
+	debug_protocol("SPDY data frame, stream=%u flags=0x%x, %zu bytes",
 		header.control.version, header.data.stream_id,
 		header.flags, header.datalen);
     }
@@ -91,13 +93,13 @@ next_frame:
 }
 
 static int
-spdy_read(TSCont contp, TSEvent event, void * edata)
+spdy_read(TSCont contp, TSEvent ev, void * edata)
 {
     TSVConn	vconn;
     int		nbytes;
     spdy_io_control * io;
 
-    switch (event) {
+    switch (ev) {
     case TS_EVENT_NET_ACCEPT:
 	TSAssert(contp == nullptr);
 	vconn = (TSVConn)edata;
@@ -111,7 +113,7 @@ spdy_read(TSCont contp, TSEvent event, void * edata)
 	io = spdy_io_control::get(contp);
 	// what is edata at this point?
 	nbytes = TSIOBufferReaderAvail(io->reader);
-	TSError("received %d bytes", nbytes);
+	debug_protocol("received %d bytes", nbytes);
 	if ((unsigned)nbytes >= spdy::message_header::size) {
 	    consume_spdy_frame(io);
 	} else {
@@ -121,7 +123,7 @@ spdy_read(TSCont contp, TSEvent event, void * edata)
     case TS_EVENT_VCONN_EOS: // fallthru
     default:
 	io = spdy_io_control::get(contp);
-	TSError("unexpected accept event %d", (int)event);
+	debug_protocol("unexpected accept event %s", cstringof(ev));
 	TSVConnClose(io->vconn);
 	delete io;
     }
@@ -130,14 +132,14 @@ spdy_read(TSCont contp, TSEvent event, void * edata)
 }
 
 static int
-spdy_accept(TSCont /* contp */, TSEvent event, void * edata)
+spdy_accept(TSCont /* contp */, TSEvent ev, void * edata)
 {
-    switch (event) {
+    switch (ev) {
     case TS_EVENT_NET_ACCEPT:
-	TSError("accepting connection, go set up a session");
-	return spdy_read(nullptr, event, edata);
+	debug_protocol("accepting connection, go set up a session");
+	return spdy_read(nullptr, ev, edata);
     default:
-	TSError("unexpected accept event %d", (int)event);
+	TSError("unexpected accept event %s", cstringof(ev));
     }
 
     return TS_EVENT_NONE;
@@ -170,7 +172,7 @@ TSPluginInit(int argc, const char *argv[])
 	TSError("[%s] Plugin registration failed", __func__);
     }
 
-    TSError("[spdy] initializing SPDY plugin...");
+    debug_plugin("initializing");
 
     if (argc != 2) {
 	TSError("[%s] Usage: spdy.so PORT", __func__);
