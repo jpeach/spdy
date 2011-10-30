@@ -10,12 +10,12 @@
 #include <stddef.h>
 #include <stdexcept>
 
-#define SPDY_MAX_FRAME_LENGTH  (1u << 24)
 
 namespace spdy {
 
     enum : unsigned {
-        PROTOCOL_VERSION = 3
+        PROTOCOL_VERSION = 3,
+        MAX_FRAME_LENGTH = (1u << 24)
     };
 
     struct protocol_error : public std::runtime_error {

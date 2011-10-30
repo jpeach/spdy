@@ -114,6 +114,10 @@ next_frame:
             header.data.stream_id, header.flags, header.datalen);
     }
 
+    if (header.datalen >= spdy::MAX_FRAME_LENGTH) {
+        // XXX
+    }
+
     if (header.datalen <= (nbytes - spdy::message_header::size)) {
         // We have all the data in-hand ... parse it.
         TSIOBufferReaderConsume(io->reader, spdy::message_header::size);
@@ -140,19 +144,10 @@ next_frame:
 static int
 spdy_read(TSCont contp, TSEvent ev, void * edata)
 {
-    TSVConn vconn;
     int     nbytes;
     spdy_io_control * io;
 
     switch (ev) {
-    case TS_EVENT_NET_ACCEPT:
-        TSAssert(contp == nullptr);
-        vconn = (TSVConn)edata;
-        io = new spdy_io_control(vconn);
-        contp = TSContCreate(spdy_read, TSMutexCreate());
-        TSContDataSet(contp, io);
-        TSVConnRead(vconn, contp, io->iobuf, INT64_MAX);
-        break;
     case TS_EVENT_VCONN_READ_READY:
     case TS_EVENT_VCONN_READ_COMPLETE:
         io = spdy_io_control::get(contp);
@@ -180,12 +175,22 @@ spdy_read(TSCont contp, TSEvent ev, void * edata)
 }
 
 static int
-spdy_accept(TSCont /* contp */, TSEvent ev, void * edata)
+spdy_accept(TSCont contp, TSEvent ev, void * edata)
 {
+    TSVConn vconn;
+    spdy_io_control * io;
+
+    TSAssert(contp == nullptr);
+
     switch (ev) {
     case TS_EVENT_NET_ACCEPT:
-        debug_protocol("accepting connection, go set up a session");
-        return spdy_read(nullptr, ev, edata);
+        debug_protocol("setting up SPDY session on new connection");
+        vconn = (TSVConn)edata;
+        io = new spdy_io_control(vconn);
+        contp = TSContCreate(spdy_read, TSMutexCreate());
+        TSContDataSet(contp, io);
+        TSVConnRead(vconn, contp, io->iobuf, INT64_MAX);
+        break;
     default:
         debug_plugin("unexpected accept event %s", cstringof(ev));
     }
