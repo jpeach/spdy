@@ -25,27 +25,46 @@ struct spdy_io_control
     spdy_io_control(TSVConn);
     ~spdy_io_control();
 
-    TSVConn     vconn;
-    TSIOBuffer      iobuf;
-    TSIOBufferReader    reader;
+    struct buffered_stream {
+        TSIOBuffer          buffer;
+        TSIOBufferReader    reader;
+
+        buffered_stream() {
+            buffer = TSIOBufferCreate();
+            reader = TSIOBufferReaderAlloc(buffer);
+        }
+
+        ~buffered_stream() {
+            TSIOBufferReaderFree(reader);
+            TSIOBufferDestroy(buffer);
+        }
+
+        void consume(size_t nbytes) {
+            TSIOBufferReaderConsume(reader, nbytes);
+        }
+
+        void watermark(size_t nbytes) {
+            TSIOBufferWaterMarkSet(buffer, nbytes);
+        }
+
+    };
+
+    TSVConn         vconn;
+    buffered_stream input;
+    buffered_stream output;
 
     static spdy_io_control * get(TSCont contp) {
-    return (spdy_io_control *)TSContDataGet(contp);
+        return (spdy_io_control *)TSContDataGet(contp);
     }
 };
 
 spdy_io_control::spdy_io_control(TSVConn v) : vconn(v)
 {
-    iobuf = TSIOBufferCreate();
-    reader = TSIOBufferReaderAlloc(iobuf);
-    TSIOBufferWaterMarkSet(iobuf, spdy::message_header::size);
 }
 
 spdy_io_control::~spdy_io_control()
 {
     TSVConnClose(vconn);
-    TSIOBufferReaderFree(reader);
-    TSIOBufferDestroy(iobuf);
 }
 
 static void
@@ -93,8 +112,8 @@ consume_spdy_frame(spdy_io_control * io)
 
 next_frame:
 
-    blk = TSIOBufferStart(io->iobuf);
-    ptr = (const uint8_t *)TSIOBufferBlockReadStart(blk, io->reader, &nbytes);
+    blk = TSIOBufferStart(io->input.buffer);
+    ptr = (const uint8_t *)TSIOBufferBlockReadStart(blk, io->input.reader, &nbytes);
     TSReleaseAssert(nbytes >= spdy::message_header::size);
 
     header = spdy::message_header::parse(ptr, (size_t)nbytes);
@@ -120,8 +139,8 @@ next_frame:
 
     if (header.datalen <= (nbytes - spdy::message_header::size)) {
         // We have all the data in-hand ... parse it.
-        TSIOBufferReaderConsume(io->reader, spdy::message_header::size);
-        TSIOBufferReaderConsume(io->reader, header.datalen);
+        io->input.consume(spdy::message_header::size);
+        io->input.consume(header.datalen);
 
         ptr += spdy::message_header::size;
 
@@ -131,18 +150,18 @@ next_frame:
             TSError("[spdy] no data frame support yet");
         }
 
-        if (TSIOBufferReaderAvail(io->reader) >= spdy::message_header::size) {
+        if (TSIOBufferReaderAvail(io->input.reader) >= spdy::message_header::size) {
             goto next_frame;
         }
     }
 
     // Push the high water mark to the end of the frame so that we don't get
     // called back until we have the whole thing.
-    TSIOBufferWaterMarkSet(io->iobuf, spdy::message_header::size + header.datalen);
+    io->input.watermark(spdy::message_header::size + header.datalen);
 }
 
 static int
-spdy_read(TSCont contp, TSEvent ev, void * edata)
+spdy_read(TSCont contp, TSEvent ev, void * /* edata */)
 {
     int     nbytes;
     spdy_io_control * io;
@@ -152,12 +171,12 @@ spdy_read(TSCont contp, TSEvent ev, void * edata)
     case TS_EVENT_VCONN_READ_COMPLETE:
         io = spdy_io_control::get(contp);
         // what is edata at this point?
-        nbytes = TSIOBufferReaderAvail(io->reader);
+        nbytes = TSIOBufferReaderAvail(io->input.reader);
         debug_plugin("received %d bytes", nbytes);
         if ((unsigned)nbytes >= spdy::message_header::size) {
             consume_spdy_frame(io);
         } else {
-            TSIOBufferReaderConsume(io->reader, nbytes);
+            io->input.consume(nbytes);
         }
 
         // XXX frame parsing can throw. If it does, best to catch it, log it
@@ -187,9 +206,10 @@ spdy_accept(TSCont contp, TSEvent ev, void * edata)
         debug_protocol("setting up SPDY session on new connection");
         vconn = (TSVConn)edata;
         io = new spdy_io_control(vconn);
+        io->input.watermark(spdy::message_header::size);
         contp = TSContCreate(spdy_read, TSMutexCreate());
         TSContDataSet(contp, io);
-        TSVConnRead(vconn, contp, io->iobuf, INT64_MAX);
+        TSVConnRead(vconn, contp, io->input.buffer, INT64_MAX);
         break;
     default:
         debug_plugin("unexpected accept event %s", cstringof(ev));
