@@ -81,6 +81,7 @@ namespace spdy {
         uint32_t    datalen;
 
         static message_header parse(const uint8_t *, size_t);
+        static size_t marshall(const message_header&, uint8_t *, size_t);
         static const unsigned size = 8; /* bytes */
     };
 
@@ -95,10 +96,8 @@ namespace spdy {
     // +------------------------------------+
     // |X| Associated-To-Stream-ID (31bits) |
     // +------------------------------------+
-    // |  Pri | Unused    |                 |
-    // +------------------+                 |
-    // | Number of Name/Value pairs (int32) |   <+
-    // +------------------------------------+    |
+    // |  Pri | Unused | Header Count(int16)|
+    // +------------------------------------+   <+
     // |     Length of name (int32)         |    | This section is the "Name/Value
     // +------------------------------------+    | Header Block", and is compressed.
     // |           Name (string)            |    |
@@ -119,6 +118,38 @@ namespace spdy {
         static syn_stream_message parse(const uint8_t *, size_t);
         static const unsigned size = 12; /* bytes */
     };
+
+    // GOAWAY frame:
+    //
+    // +----------------------------------+
+    // |1|   version    |         7       |
+    // +----------------------------------+
+    // | 0 (flags) |     8 (length)       |
+    // +----------------------------------|
+    // |X|  Last-good-stream-ID (31 bits) |
+    // +----------------------------------+
+    // |          Status code             |
+    // +----------------------------------+
+
+    struct goaway_message
+    {
+        unsigned last_stream_id;
+        unsigned status_code;
+
+        static goaway_message parse(const uint8_t *, size_t);
+        static const unsigned size = 8; /* bytes */
+    };
+
+    struct rst_stream_message
+    {
+        unsigned stream_id;
+        unsigned status_code;
+
+        static rst_stream_message parse(const uint8_t *, size_t);
+        static size_t marshall(const rst_stream_message&, uint8_t *, size_t);
+        static const unsigned size = 8; /* bytes */
+    };
+
 
 } // namespace spdy
 
