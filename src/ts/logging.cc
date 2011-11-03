@@ -134,4 +134,22 @@ stringof<spdy::control_frame_type>(const spdy::control_frame_type& ev)
     return match(control_names, (unsigned)ev);
 }
 
+static const named_value<unsigned> error_names[] =
+{
+    { "PROTOCOL_ERROR", 1 },
+    { "INVALID_STREAM", 2 },
+    { "REFUSED_STREAM", 3 },
+    { "UNSUPPORTED_VERSION", 4 },
+    { "CANCEL", 5 },
+    { "FLOW_CONTROL_ERROR", 6 },
+    { "STREAM_IN_USE", 7 },
+    { "STREAM_ALREADY_CLOSED", 8 }
+};
+
+template<> std::string
+stringof<spdy::error>(const spdy::error& e)
+{
+    return match(control_names, (unsigned)e);
+}
+
 /* vim: set sw=4 ts=4 tw=79 et : */

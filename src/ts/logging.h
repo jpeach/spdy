@@ -42,6 +42,7 @@ template <typename T> std::string stringof(const T&);
 
 template<> std::string stringof<TSEvent>(const TSEvent&);
 template<> std::string stringof<spdy::control_frame_type>(const spdy::control_frame_type&);
+template<> std::string stringof<spdy::error>(const spdy::error&);
 
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #define likely(x)   __builtin_expect(!!(x), 1)
