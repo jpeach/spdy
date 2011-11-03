@@ -68,9 +68,39 @@ spdy_io_control::~spdy_io_control()
 }
 
 static void
+spdy_reset_stream(
+        spdy_io_control *   io,
+        unsigned            stream_id,
+        spdy::error         status)
+{
+    spdy::message_header hdr;
+    spdy::rst_stream_message rst;
+
+    uint8_t     buffer[spdy::message_header::size + spdy::message_header::size];
+    uint8_t *   ptr = buffer;
+    size_t      nbytes = 0;
+
+    hdr.is_control = true;
+    hdr.control.version = spdy::PROTOCOL_VERSION;
+    hdr.control.type = spdy::CONTROL_RST_STREAM;
+    hdr.flags = 0;
+    hdr.datalen = spdy::rst_stream_message::size;
+    rst.stream_id = stream_id;
+    rst.status_code = status;
+
+    nbytes += spdy::message_header::marshall(hdr, ptr, sizeof(buffer));
+    nbytes += spdy::rst_stream_message::marshall(rst, ptr, sizeof(buffer) - nbytes);
+
+    debug_protocol("resetting stream %u with error %s",
+            stream_id, cstringof(status));
+    TSIOBufferWrite(io->output.buffer, buffer, nbytes);
+    TSIOBufferProduce(io->output.buffer, nbytes);
+}
+
+static void
 dispatch_spdy_control_frame(
         const spdy::message_header& header,
-        spdy_io_control *           /*io*/,
+        spdy_io_control *           io,
         const uint8_t __restrict *  ptr,
         size_t                      nbytes)
 {
@@ -85,6 +115,8 @@ dispatch_spdy_control_frame(
                 cstringof(header.control.type), msg.stream.stream_id,
                 msg.stream.associated_id, msg.stream.priority,
                 msg.stream.header_count);
+
+        spdy_reset_stream(io, msg.stream.stream_id, spdy::REFUSED_STREAM);
         break;
     case spdy::CONTROL_SYN_REPLY:
     case spdy::CONTROL_RST_STREAM:
@@ -161,10 +193,12 @@ next_frame:
 }
 
 static int
-spdy_read(TSCont contp, TSEvent ev, void * /* edata */)
+spdy_vconn_io(TSCont contp, TSEvent ev, void * edata)
 {
     int     nbytes;
     spdy_io_control * io;
+
+    debug_plugin("received IO event %s, data=%p", cstringof(ev), edata);
 
     switch (ev) {
     case TS_EVENT_VCONN_READ_READY:
@@ -175,12 +209,13 @@ spdy_read(TSCont contp, TSEvent ev, void * /* edata */)
         debug_plugin("received %d bytes", nbytes);
         if ((unsigned)nbytes >= spdy::message_header::size) {
             consume_spdy_frame(io);
-        } else {
-            io->input.consume(nbytes);
         }
 
         // XXX frame parsing can throw. If it does, best to catch it, log it
         // and drop the connection.
+        break;
+    case TS_EVENT_VCONN_WRITE_READY:
+    case TS_EVENT_VCONN_WRITE_COMPLETE:
         break;
     case TS_EVENT_VCONN_EOS: // fallthru
     default:
@@ -207,9 +242,11 @@ spdy_accept(TSCont contp, TSEvent ev, void * edata)
         vconn = (TSVConn)edata;
         io = new spdy_io_control(vconn);
         io->input.watermark(spdy::message_header::size);
-        contp = TSContCreate(spdy_read, TSMutexCreate());
+        io->output.watermark(spdy::message_header::size);
+        contp = TSContCreate(spdy_vconn_io, TSMutexCreate());
         TSContDataSet(contp, io);
         TSVConnRead(vconn, contp, io->input.buffer, INT64_MAX);
+        TSVConnWrite(vconn, contp, io->output.reader, INT64_MAX);
         break;
     default:
         debug_plugin("unexpected accept event %s", cstringof(ev));
