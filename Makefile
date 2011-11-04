@@ -27,14 +27,21 @@ CPPFLAGS := \
 	-Isrc/lib
 
 LinkBundle = $(CXX) -bundle -Wl,-bundle_loader,$(TS)/bin/traffic_server -o $@ $^
+LinkProgram = $(CXX) -o $@ $^
 
-SOURCES := \
+Spdy_Sources := \
 	src/ts/spdy.cc \
 	src/ts/logging.cc \
 	src/lib/spdy/message.cc
 
-OBJECTS := $(SOURCES:.cc=.o)
-TARGETS := spdy.so
+Test_Sources := \
+	src/test/zstream.cc
+
+OBJECTS := \
+	$(Spdy_Sources:.cc=.o) \
+	$(Test_Sources:.cc=.o)
+
+TARGETS := spdy.so test.zlib
 
 all: $(TARGETS)
 
@@ -42,13 +49,19 @@ install: spdy.so
 	$(SUDO) $(TSXS) -i -o $<
 	$(SUDO) $(TS)/bin/trafficserver restart
 
-spdy.so: $(OBJECTS)
+spdy.so: $(Spdy_Sources:.cc=.o)
 	$(LinkBundle)
+
+test.zlib: src/test/zstream.o
+	$(LinkProgram) -lz
+
+test: test.zlib
+	for t in $^ ; do ./$$t ; done
 
 clean:
 	rm -f $(TARGETS) $(OBJECTS)
 	rm -rf *.dSYM
 
-.PHONY: all install clean
+.PHONY: all install clean test
 
 # vim: set ts=8 noet :
