@@ -32,7 +32,8 @@ LinkProgram = $(CXX) -o $@ $^
 Spdy_Sources := \
 	src/ts/spdy.cc \
 	src/ts/logging.cc \
-	src/lib/spdy/message.cc
+	src/lib/spdy/message.cc \
+	src/lib/spdy/zstream.cc
 
 Test_Sources := \
 	src/test/zstream.cc
@@ -50,9 +51,9 @@ install: spdy.so
 	$(SUDO) $(TS)/bin/trafficserver restart
 
 spdy.so: $(Spdy_Sources:.cc=.o)
-	$(LinkBundle)
+	$(LinkBundle) -lz
 
-test.zlib: src/test/zstream.o
+test.zlib: src/test/zstream.o src/lib/spdy/zstream.o
 	$(LinkProgram) -lz
 
 test: test.zlib

@@ -34,7 +34,6 @@ zchunk make_chunk(T * ptr, N len) {
 template <typename ZlibMechanism>
 struct zstream : public ZlibMechanism
 {
-
     zstream() {
         memset(&stream, 0, sizeof(stream));
         stream.zalloc = Z_NULL;
@@ -43,21 +42,30 @@ struct zstream : public ZlibMechanism
         ZlibMechanism::init(&stream);
     }
 
-    unsigned    &avail_out() { return stream.avail_out; }
-    uint8_t *      &next_out() { return stream.next_out; }
-
     template <typename T, typename N>
     void input(T * ptr, N nbytes) {
         stream.next_in = (uint8_t *)ptr;
         stream.avail_in = nbytes;
     }
 
+    // Return the number of output bytes.
     template <typename T, typename N>
-    int consume(T * ptr, N nbytes) {
+    ssize_t consume(T * ptr, N nbytes) {
+        int ret;
         stream.next_out = (uint8_t *)ptr;
         stream.avail_out = nbytes;
-        return ZlibMechanism::transact(&stream, Z_FINISH);
-        // return is Z_STREAM_END if all input processed
+
+        ret = ZlibMechanism::transact(&stream, Z_SYNC_FLUSH);
+        if (ret == Z_BUF_ERROR) {
+            return 0;
+        }
+
+        if (ret == Z_OK || ret == Z_STREAM_END) {
+            // return the number of bytes produced
+            return nbytes - stream.avail_out;
+        }
+
+        return ret; // XXX error is ambiguous WRT nbytes
     }
 
     ~zstream() {
@@ -70,48 +78,17 @@ private:
 
 struct decompress
 {
-    int init(z_stream * zstr) {
-        return inflateInit(zstr);
-    }
-
-    int transact(z_stream * zstr, int flush) {
-        return inflate(zstr, flush);
-    }
-
-    int destroy(z_stream * zstr) {
-        return inflateEnd(zstr);
-    }
+    int init(z_stream * zstr);
+    int transact(z_stream * zstr, int flush);
+    int destroy(z_stream * zstr);
 };
 
 struct compress
 {
-    int init(z_stream * zstr) {
-        return deflateInit(zstr, Z_DEFAULT_COMPRESSION);
-    }
-
-    int transact(z_stream * zstr, int flush) {
-        return deflate(zstr, flush);
-    }
-
-    int destroy(z_stream * zstr) {
-        return deflateEnd(zstr);
-    }
+    int init(z_stream * zstr);
+    int transact(z_stream * zstr, int flush);
+    int destroy(z_stream * zstr);
 };
-
-static const char dictionary[] =
-"optionsgetheadpostputdeletetraceacceptaccept-charsetaccept-encodingaccept-"
-"languageauthorizationexpectfromhostif-modified-sinceif-matchif-none-matchi"
-"f-rangeif-unmodifiedsincemax-forwardsproxy-authorizationrangerefererteuser"
-"-agent10010120020120220320420520630030130230330430530630740040140240340440"
-"5406407408409410411412413414415416417500501502503504505accept-rangesageeta"
-"glocationproxy-authenticatepublicretry-afterservervarywarningwww-authentic"
-"ateallowcontent-basecontent-encodingcache-controlconnectiondatetrailertran"
-"sfer-encodingupgradeviawarningcontent-languagecontent-lengthcontent-locati"
-"oncontent-md5content-rangecontent-typeetagexpireslast-modifiedset-cookieMo"
-"ndayTuesdayWednesdayThursdayFridaySaturdaySundayJanFebMarAprMayJunJulAugSe"
-"pOctNovDecchunkedtext/htmlimage/pngimage/jpgimage/gifapplication/xmlapplic"
-"ation/xhtmltext/plainpublicmax-agecharset=iso-8859-1utf-8gzipdeflateHTTP/1"
-".1statusversionurl";
 
 } // namespace spdy
 /* vim: set sw=4 ts=4 tw=79 et : */
