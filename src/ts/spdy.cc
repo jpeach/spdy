@@ -101,8 +101,7 @@ static void
 dispatch_spdy_control_frame(
         const spdy::message_header& header,
         spdy_io_control *           io,
-        const uint8_t __restrict *  ptr,
-        size_t                      nbytes)
+        const uint8_t __restrict *  ptr)
 {
     union {
         spdy::syn_stream_message stream;
@@ -110,7 +109,7 @@ dispatch_spdy_control_frame(
 
     switch (header.control.type) {
     case spdy::CONTROL_SYN_STREAM:
-        msg.stream = spdy::syn_stream_message::parse(ptr, nbytes);
+        msg.stream = spdy::syn_stream_message::parse(ptr, header.datalen);
         debug_protocol("%s frame stream=%u associated=%u priority=%u headers=%u",
                 cstringof(header.control.type), msg.stream.stream_id,
                 msg.stream.associated_id, msg.stream.priority,
@@ -166,7 +165,7 @@ next_frame:
     }
 
     if (header.datalen >= spdy::MAX_FRAME_LENGTH) {
-        // XXX
+        // XXX puke
     }
 
     if (header.datalen <= (nbytes - spdy::message_header::size)) {
@@ -177,7 +176,7 @@ next_frame:
         ptr += spdy::message_header::size;
 
         if (header.is_control) {
-            dispatch_spdy_control_frame(header, io, ptr, nbytes);
+            dispatch_spdy_control_frame(header, io, ptr);
         } else {
             TSError("[spdy] no data frame support yet");
         }
