@@ -19,17 +19,18 @@
 
 namespace spdy {
 
-struct zchunk
+enum zstream_error
 {
-    void * ptr;
-    size_t len;
+    z_ok,
+    z_stream_end,
+    z_need_dict,
+    z_errno,
+    z_stream_error,
+    z_data_error,
+    z_memory_error,
+    z_buffer_error,
+    z_version_error
 };
-
-template <typename T, typename N>
-zchunk make_chunk(T * ptr, N len) {
-    zchunk c = { ptr, len};
-    return c;
-}
 
 template <typename ZlibMechanism>
 struct zstream : public ZlibMechanism
@@ -48,7 +49,7 @@ struct zstream : public ZlibMechanism
         stream.avail_in = nbytes;
     }
 
-    // Return the number of output bytes.
+    // Return the number of output bytes or negative zstream_error on failure.
     template <typename T, typename N>
     ssize_t consume(T * ptr, N nbytes) {
         int ret;
@@ -56,16 +57,16 @@ struct zstream : public ZlibMechanism
         stream.avail_out = nbytes;
 
         ret = ZlibMechanism::transact(&stream, Z_SYNC_FLUSH);
-        if (ret == Z_BUF_ERROR) {
+        if (ret == z_buffer_error) {
             return 0;
         }
 
-        if (ret == Z_OK || ret == Z_STREAM_END) {
+        if (ret == z_ok || ret == z_stream_end) {
             // return the number of bytes produced
             return nbytes - stream.avail_out;
         }
 
-        return ret; // XXX error is ambiguous WRT nbytes
+        return -ret;
     }
 
     ~zstream() {
@@ -78,16 +79,16 @@ private:
 
 struct decompress
 {
-    int init(z_stream * zstr);
-    int transact(z_stream * zstr, int flush);
-    int destroy(z_stream * zstr);
+    zstream_error init(z_stream * zstr);
+    zstream_error transact(z_stream * zstr, int flush);
+    zstream_error destroy(z_stream * zstr);
 };
 
 struct compress
 {
-    int init(z_stream * zstr);
-    int transact(z_stream * zstr, int flush);
-    int destroy(z_stream * zstr);
+    zstream_error init(z_stream * zstr);
+    zstream_error transact(z_stream * zstr, int flush);
+    zstream_error destroy(z_stream * zstr);
 };
 
 } // namespace spdy

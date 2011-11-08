@@ -120,7 +120,6 @@ void spdy_headers()
     zout.input(pkt, sizeof(pkt));
     do {
         ret = zout.consume(outbuf, sizeof(outbuf));
-        printf("result=%zd\n", ret);
     } while (ret > 0);
 
     assert(ret == 0);

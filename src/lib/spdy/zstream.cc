@@ -44,12 +44,30 @@ unsigned long dictionary_id()
 }
 #endif
 
-int decompress::init(z_stream * zstr)
+static zstream_error map_zerror(int error)
 {
-    return inflateInit(zstr);
+    const zstream_error z_errors[] =
+    {
+        z_version_error,    // Z_VERSION_ERROR  (-6)
+        z_buffer_error,     // Z_BUF_ERROR      (-5)
+        z_memory_error,     // Z_MEM_ERROR      (-4)
+        z_data_error,       // Z_DATA_ERROR     (-3)
+        z_stream_error,     // Z_STREAM_ERROR   (-2)
+        z_errno,            // Z_ERRNO          (-1)
+        z_ok,               // Z_OK             ( 0)
+        z_stream_end,       // Z_STREAM_END     ( 1)
+        z_need_dict         // Z_NEED_DICT      ( 2)
+    };
+    const zstream_error * z = &z_errors[6];
+    return z[error];
 }
 
-int decompress::transact(z_stream * zstr, int flush)
+zstream_error decompress::init(z_stream * zstr)
+{
+    return map_zerror(inflateInit(zstr));
+}
+
+zstream_error decompress::transact(z_stream * zstr, int flush)
 {
     int ret = inflate(zstr, flush);
     if (ret == Z_NEED_DICT) {
@@ -61,20 +79,20 @@ int decompress::transact(z_stream * zstr, int flush)
         }
     }
 
-    return ret;
+    return map_zerror(ret);
 }
 
-int decompress::destroy(z_stream * zstr)
+zstream_error decompress::destroy(z_stream * zstr)
 {
-    return inflateEnd(zstr);
+    return map_zerror(inflateEnd(zstr));
 }
 
-int compress::init(z_stream * zstr)
+zstream_error compress::init(z_stream * zstr)
 {
-    return deflateInit(zstr, Z_DEFAULT_COMPRESSION);
+    return map_zerror(deflateInit(zstr, Z_DEFAULT_COMPRESSION));
 }
 
-int compress::transact(z_stream * zstr, int flush)
+zstream_error compress::transact(z_stream * zstr, int flush)
 {
     int ret = deflate(zstr, flush);
     if (ret == Z_NEED_DICT) {
@@ -84,12 +102,12 @@ int compress::transact(z_stream * zstr, int flush)
         }
     }
 
-    return ret;
+    return map_zerror(ret);
 }
 
-int compress::destroy(z_stream * zstr)
+zstream_error compress::destroy(z_stream * zstr)
 {
-    return deflateEnd(zstr);
+    return map_zerror(deflateEnd(zstr));
 }
 
 } // namespace spdy
