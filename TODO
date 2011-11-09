@@ -1,0 +1,10 @@
+* A raw memory container that we can decompress bytes straight into.
+  TSIOBuffer() is too coupled to the TS IO implementation to be nice and
+  generic, and std::vector zeros when you resize so you can't combine
+  capacity() and size() nicely.
+
+* SPDY protocol versioning. SPDYv2 and SPDYv3 are incompatible in a number of
+  ways (eg. SPDYv3 widens some fields to 32bits). The current documentation is
+  for SPDYv3, but the only serious client (Chrome) implements SPDYv2. Nice.
+
+* err, protocol error handling. That would help.

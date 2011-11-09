@@ -14,7 +14,10 @@
  * limitations under the License.
  */
 
-#include "spdy.h"
+#ifndef ZSTREAM_H_EA418AC6_C57B_4597_9748_7C11D04B6586
+#define ZSTREAM_H_EA418AC6_C57B_4597_9748_7C11D04B6586
+
+#include <inttypes.h>
 #include <zlib.h>
 
 namespace spdy {
@@ -74,6 +77,9 @@ struct zstream : public ZlibMechanism
     }
 
 private:
+    zstream(const zstream&); // disable
+    zstream& operator=(const zstream&); // disable
+
     z_stream stream;
 };
 
@@ -92,4 +98,6 @@ struct compress
 };
 
 } // namespace spdy
+
+#endif /* ZSTREAM_H_EA418AC6_C57B_4597_9748_7C11D04B6586 */
 /* vim: set sw=4 ts=4 tw=79 et : */

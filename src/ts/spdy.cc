@@ -18,54 +18,8 @@
 #include <stdlib.h>
 #include <spdy/spdy.h>
 
+#include "io.h"
 #include "logging.h"
-
-struct spdy_io_control
-{
-    spdy_io_control(TSVConn);
-    ~spdy_io_control();
-
-    struct buffered_stream {
-        TSIOBuffer          buffer;
-        TSIOBufferReader    reader;
-
-        buffered_stream() {
-            buffer = TSIOBufferCreate();
-            reader = TSIOBufferReaderAlloc(buffer);
-        }
-
-        ~buffered_stream() {
-            TSIOBufferReaderFree(reader);
-            TSIOBufferDestroy(buffer);
-        }
-
-        void consume(size_t nbytes) {
-            TSIOBufferReaderConsume(reader, nbytes);
-        }
-
-        void watermark(size_t nbytes) {
-            TSIOBufferWaterMarkSet(buffer, nbytes);
-        }
-
-    };
-
-    TSVConn         vconn;
-    buffered_stream input;
-    buffered_stream output;
-
-    static spdy_io_control * get(TSCont contp) {
-        return (spdy_io_control *)TSContDataGet(contp);
-    }
-};
-
-spdy_io_control::spdy_io_control(TSVConn v) : vconn(v)
-{
-}
-
-spdy_io_control::~spdy_io_control()
-{
-    TSVConnClose(vconn);
-}
 
 static void
 spdy_reset_stream(
@@ -114,6 +68,10 @@ dispatch_spdy_control_frame(
                 cstringof(header.control.type), msg.stream.stream_id,
                 msg.stream.associated_id, msg.stream.priority,
                 msg.stream.header_count);
+
+        spdy::parse_header_block(io->decompressor,
+                ptr + spdy::syn_stream_message::size,
+                header.datalen - spdy::syn_stream_message::size);
 
         spdy_reset_stream(io, msg.stream.stream_id, spdy::REFUSED_STREAM);
         break;

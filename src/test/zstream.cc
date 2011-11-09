@@ -16,6 +16,7 @@
 
 #include <spdy/zstream.h>
 #include <assert.h>
+#include <string.h>
 
 #define CHUNKSIZE 128
 

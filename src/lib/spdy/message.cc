@@ -4,7 +4,11 @@
  */
 
 #include "spdy.h"
+#include "zstream.h"
 #include <stdexcept>
+#include <vector>
+#include <map>
+#include <algorithm>
 #include <string.h>
 #include <arpa/inet.h>
 
@@ -12,21 +16,21 @@
 // to inline the memcpy() calls. Need to verify this by examining the
 // assembler.
 
-template <typename T>
-T extract(const uint8_t __restrict * &ptr) {
+template <typename T> T
+extract(const uint8_t __restrict * &ptr) {
     T val;
     memcpy(&val, ptr, sizeof(val));
     std::advance(ptr, sizeof(val));
     return val;
 }
 
-template <>
-uint8_t extract<uint8_t>(const uint8_t __restrict * &ptr) {
+template <> uint8_t
+extract<uint8_t>(const uint8_t __restrict * &ptr) {
     return *ptr++;
 }
 
-template <typename T>
-void insert(const T& val, uint8_t __restrict * &ptr) {
+template <typename T> void
+insert(const T& val, uint8_t __restrict * &ptr) {
     memcpy(ptr, &val, sizeof(val));
     std::advance(ptr, sizeof(val));
 }
@@ -43,7 +47,15 @@ insert_stream_id(uint32_t stream_id, uint8_t __restrict * &ptr)
     insert<uint32_t>(htonl(stream_id & 0x7fffffffu), ptr);
 }
 
-spdy::message_header spdy::message_header::parse(
+// XXX 16 bits in SPDYv2, but 32bits in SPDYv3
+static inline uint16_t
+extract_string_length(const uint8_t __restrict * &ptr)
+{
+    return ntohs(extract<uint16_t>(ptr));
+}
+
+spdy::message_header
+spdy::message_header::parse(
         const uint8_t __restrict * ptr, size_t len)
 {
     message_header header;
@@ -72,7 +84,8 @@ spdy::message_header spdy::message_header::parse(
     return header;
 }
 
-size_t spdy::message_header::marshall(
+size_t
+spdy::message_header::marshall(
         const message_header& msg, uint8_t __restrict * ptr, size_t len)
 {
     if (len < message_header::size) {
@@ -91,7 +104,8 @@ size_t spdy::message_header::marshall(
     return 0;
 }
 
-spdy::syn_stream_message spdy::syn_stream_message::parse(
+spdy::syn_stream_message
+spdy::syn_stream_message::parse(
         const uint8_t __restrict * ptr, size_t len)
 {
     syn_stream_message msg;
@@ -104,12 +118,11 @@ spdy::syn_stream_message spdy::syn_stream_message::parse(
     msg.associated_id = extract_stream_id(ptr);
     msg.priority = extract<uint8_t>(ptr) >> 5;  // top 3 bits are priority
     (void)extract<uint8_t>(ptr); // skip unused byte
-    msg.header_count = ntohs(extract<uint16_t>(ptr));
-
     return msg;
 }
 
-spdy::goaway_message spdy::goaway_message::parse(
+spdy::goaway_message
+spdy::goaway_message::parse(
         const uint8_t __restrict * ptr, size_t len)
 {
     goaway_message msg;
@@ -123,7 +136,8 @@ spdy::goaway_message spdy::goaway_message::parse(
     return msg;
 }
 
-spdy::rst_stream_message spdy::rst_stream_message::parse(
+spdy::rst_stream_message
+spdy::rst_stream_message::parse(
         const uint8_t __restrict * ptr, size_t len)
 {
     rst_stream_message msg;
@@ -137,7 +151,8 @@ spdy::rst_stream_message spdy::rst_stream_message::parse(
     return msg;
 }
 
-size_t spdy::rst_stream_message::marshall(
+size_t
+spdy::rst_stream_message::marshall(
         const rst_stream_message& msg, uint8_t __restrict * ptr, size_t len)
 {
     if (len < rst_stream_message::size) {
@@ -147,6 +162,115 @@ size_t spdy::rst_stream_message::marshall(
     insert_stream_id(msg.stream_id, ptr);
     insert<uint32_t>(msg.status_code, ptr);
     return 8;
+}
+
+// +------------------------------------+
+// | Number of Name/Value pairs (int32) |
+// +------------------------------------+
+// |     Length of name (int32)         |
+// +------------------------------------+
+// |           Name (string)            |
+// +------------------------------------+
+// |     Length of value  (int32)       |
+// +------------------------------------+
+// |          Value   (string)          |
+// +------------------------------------+
+// |           (repeats)                |
+
+static spdy::zstream_error
+decompress_headers(
+        spdy::zstream<spdy::decompress>& decompressor,
+        std::vector<uint8_t>& bytes)
+{
+    ssize_t nbytes;
+
+    do {
+        size_t avail;
+        size_t old = bytes.size();
+        bytes.resize(bytes.size() + getpagesize());
+        avail = bytes.size() - old;
+        nbytes = decompressor.consume(&bytes[old], avail);
+        if (nbytes > 0) {
+            bytes.resize(old + nbytes);
+        } else {
+            bytes.resize(old);
+        }
+    } while (nbytes > 0);
+
+    if (nbytes < 0) {
+        return (spdy::zstream_error)(-nbytes);
+    }
+
+    return spdy::z_ok;
+}
+
+static std::map<std::string, std::string>
+parse_name_value_pairs_v2(
+        const uint8_t __restrict * ptr, size_t len)
+{
+    int32_t npairs;
+    int32_t namelen;
+    const uint8_t __restrict * end = ptr + len;
+
+    std::map<std::string, std::string> pairs;
+
+    if (len < sizeof(int32_t)) {
+        // XXX throw
+    }
+
+    // XXX 16 bits in SPDYv2, but 32bits in SPDYv3
+    npairs = ntohs(extract<int16_t>(ptr));
+    if (npairs < 1) {
+        //
+    }
+
+    while (npairs--) {
+        std::string key;
+        std::string val;
+        int32_t nbytes;
+
+        if (std::distance(ptr, end) < 8) {
+            // XXX
+        }
+
+        nbytes = extract_string_length(ptr);
+        if (std::distance(ptr, end) < nbytes) {
+            // XXX
+        }
+
+        key.assign((const char *)ptr, nbytes);
+        std::advance(ptr, nbytes);
+
+        nbytes = extract_string_length(ptr);
+        if (std::distance(ptr, end) < namelen) {
+            // XXX
+        }
+
+        val.assign((const char *)ptr, nbytes);
+        std::advance(ptr, nbytes);
+
+        pairs[key] = val;
+    }
+
+    return pairs;
+}
+
+size_t
+spdy::parse_header_block(
+        zstream<decompress>& decompressor, const uint8_t __restrict * ptr, size_t len)
+{
+    std::vector<uint8_t> bytes;
+    std::map<std::string, std::string> headers;
+
+    // XXX need the packad header here because we need to know the SPDY
+    // protocol version in order to parse the incompatible length fields.
+    decompressor.input(ptr, len);
+    if (decompress_headers(decompressor, bytes) != z_ok) {
+        // XXX
+    }
+
+    headers = parse_name_value_pairs_v2(&bytes[0], bytes.size());
+    return headers.size();
 }
 
 /* vim: set sw=4 ts=4 tw=79 et : */

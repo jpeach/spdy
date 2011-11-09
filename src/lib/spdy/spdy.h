@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdexcept>
 
+#include "zstream.h"
 
 namespace spdy {
 
@@ -116,7 +117,7 @@ namespace spdy {
         unsigned header_count;
 
         static syn_stream_message parse(const uint8_t *, size_t);
-        static const unsigned size = 12; /* bytes */
+        static const unsigned size = 10; /* bytes */
     };
 
     // GOAWAY frame:
@@ -150,6 +151,8 @@ namespace spdy {
         static const unsigned size = 8; /* bytes */
     };
 
+size_t parse_header_block(
+        zstream<decompress>& decompressor, const uint8_t __restrict * ptr, size_t len);
 
 } // namespace spdy
 
