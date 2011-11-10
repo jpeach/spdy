@@ -17,9 +17,9 @@
 #include <ts/ts.h>
 #include <stdlib.h>
 #include <spdy/spdy.h>
+#include <platform/logging.h>
 
 #include "io.h"
-#include "logging.h"
 
 static void
 spdy_reset_stream(

@@ -30,19 +30,12 @@ void TSError(const char *, ...)
     __attribute__((format(printf, 1, 2)));
 }
 
-namespace spdy { enum control_frame_type : unsigned; }
-
 template <typename T, unsigned N> unsigned countof(const T(&)[N]) {
     return N;
 }
 
 template <typename T> std::string stringof(const T&);
-
 #define cstringof(x) stringof(x).c_str()
-
-template<> std::string stringof<TSEvent>(const TSEvent&);
-template<> std::string stringof<spdy::control_frame_type>(const spdy::control_frame_type&);
-template<> std::string stringof<spdy::error>(const spdy::error&);
 
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #define likely(x)   __builtin_expect(!!(x), 1)
@@ -55,6 +48,30 @@ template<> std::string stringof<spdy::error>(const spdy::error&);
 
 #define debug_protocol(fmt, ...)    debug_tag("spdy.protocol", fmt, ##__VA_ARGS__)
 #define debug_plugin(fmt, ...)      debug_tag("spdy.plugin", fmt, ##__VA_ARGS__)
+
+// Internal logging helpers
+namespace detail {
+
+template <typename T>
+struct named_value
+{
+    const char * name;
+    T value;
+};
+
+template <typename T, unsigned N> const char *
+match(const named_value<T> (&names)[N], const T& value)
+{
+    for (unsigned i = 0; i < N; ++i) {
+        if (names[i].value == value) {
+            return names[i].name;
+        }
+    }
+
+    return "";
+}
+
+}
 
 #endif /* LOGGING_H_E307AFC6_4429_42F6_8E66_4004C6A78795 */
 /* vim: set sw=4 ts=4 tw=79 et : */

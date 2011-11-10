@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include <stddef.h>
 #include <stdexcept>
+#include <string>
 
 #include "zstream.h"
 
@@ -155,6 +156,14 @@ size_t parse_header_block(
         zstream<decompress>& decompressor, const uint8_t __restrict * ptr, size_t len);
 
 } // namespace spdy
+
+template <typename T> std::string stringof(const T&);
+
+template<> std::string
+stringof<spdy::control_frame_type>(const spdy::control_frame_type&);
+
+template<> std::string
+stringof<spdy::error>(const spdy::error&);
 
 #endif /* SPDY_H_57211D6A_F320_42E3_8205_89E651B4A5DB */
 /* vim: set sw=4 ts=4 tw=79 et : */

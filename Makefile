@@ -31,16 +31,24 @@ LinkProgram = $(CXX) -o $@ $^
 
 Spdy_Sources := \
 	src/ts/spdy.cc \
-	src/ts/logging.cc \
+	src/ts/strings.cc
+
+LibSpdy_Sources := \
 	src/lib/spdy/message.cc \
+	src/lib/spdy/strings.cc \
 	src/lib/spdy/zstream.cc
 
 Test_Sources := \
 	src/test/zstream.cc
 
+Spdy_Objects := $(Spdy_Sources:.cc=.o)
+LibSpdy_Objects := $(LibSpdy_Sources:.cc=.o)
+Test_Objects := $(Test_Sources:.cc=.o)
+
 OBJECTS := \
-	$(Spdy_Sources:.cc=.o) \
-	$(Test_Sources:.cc=.o)
+	$(Spdy_Objects) \
+	$(LibSpdy_Objects) \
+	$(Test_Objects)
 
 TARGETS := spdy.so test.zlib
 
@@ -50,10 +58,10 @@ install: spdy.so
 	$(SUDO) $(TSXS) -i -o $<
 	$(SUDO) $(TS)/bin/trafficserver restart
 
-spdy.so: $(Spdy_Sources:.cc=.o)
+spdy.so: $(Spdy_Objects) $(LibSpdy_Objects)
 	$(LinkBundle) -lz
 
-test.zlib: src/test/zstream.o src/lib/spdy/zstream.o
+test.zlib: src/test/zstream.o $(LibSpdy_Objects)
 	$(LinkProgram) -lz
 
 test: test.zlib

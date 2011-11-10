@@ -67,5 +67,7 @@ spdy_io_control::~spdy_io_control()
     TSVConnClose(vconn);
 }
 
+template<> std::string stringof<TSEvent>(const TSEvent&);
+
 #endif /* IO_H_C3455D48_1D3C_49C0_BB81_844F4C7946A5 */
 /* vim: set sw=4 ts=4 tw=79 et : */
