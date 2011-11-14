@@ -255,22 +255,28 @@ parse_name_value_pairs_v2(
     return pairs;
 }
 
-size_t
-spdy::parse_header_block(
-        zstream<decompress>& decompressor, const uint8_t __restrict * ptr, size_t len)
+spdy::key_value_block
+spdy::key_value_block::parse(
+        unsigned                    version,
+        zstream<decompress>&        decompressor,
+        const uint8_t __restrict *  ptr,
+        size_t                      len)
 {
-    std::vector<uint8_t> bytes;
-    std::map<std::string, std::string> headers;
+    std::vector<uint8_t>    bytes;
+    key_value_block         kvblock;
 
-    // XXX need the packad header here because we need to know the SPDY
-    // protocol version in order to parse the incompatible length fields.
+    if (version != 2) {
+        // XXX support v3 and throw a proper damn error.
+        throw std::runtime_error("unsupported version");
+    }
+
     decompressor.input(ptr, len);
     if (decompress_headers(decompressor, bytes) != z_ok) {
         // XXX
     }
 
-    headers = parse_name_value_pairs_v2(&bytes[0], bytes.size());
-    return headers.size();
+    kvblock.headers = parse_name_value_pairs_v2(&bytes[0], bytes.size());
+    return kvblock;
 }
 
 /* vim: set sw=4 ts=4 tw=79 et : */

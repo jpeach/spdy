@@ -17,6 +17,22 @@
 #ifndef IO_H_C3455D48_1D3C_49C0_BB81_844F4C7946A5
 #define IO_H_C3455D48_1D3C_49C0_BB81_844F4C7946A5
 
+struct spdy_io_stream
+{
+    explicit spdy_io_stream(unsigned);
+    ~spdy_io_stream();
+
+    void start();
+
+    unsigned                stream_id;
+    TSAction                action;
+    spdy::key_value_block   headers;
+
+    static spdy_io_stream * get(TSCont contp) {
+        return (spdy_io_stream *)TSContDataGet(contp);
+    }
+};
+
 struct spdy_io_control
 {
     spdy_io_control(TSVConn);
@@ -46,9 +62,24 @@ struct spdy_io_control
 
     };
 
-    TSVConn         vconn;
-    buffered_stream input;
-    buffered_stream output;
+    bool valid_client_stream_id(unsigned stream_id) const {
+        if (stream_id == 0) { return false; } // must not be zero
+        if ((stream_id % 2) == 0) { return false; } // must be odd
+        return stream_id > last_stream_id;
+    }
+
+    spdy_io_stream * create_stream(unsigned stream_id) {
+        last_stream_id = stream_id;
+        return streams[stream_id] = new spdy_io_stream(stream_id);
+    }
+
+    typedef std::map<unsigned, spdy_io_stream *> stream_map_type;
+
+    TSVConn             vconn;
+    buffered_stream     input;
+    buffered_stream     output;
+    stream_map_type     streams;
+    unsigned            last_stream_id;
 
     spdy::zstream<spdy::compress>   compressor;
     spdy::zstream<spdy::decompress> decompressor;
@@ -58,14 +89,29 @@ struct spdy_io_control
     }
 };
 
-spdy_io_control::spdy_io_control(TSVConn v) : vconn(v)
+template <typename T, T (*A)(void), TSReturnCode (*D)(T)>
+struct scoped_ts_object
 {
-}
+    scoped_ts_object() : ts(A()) {
+    }
 
-spdy_io_control::~spdy_io_control()
-{
-    TSVConnClose(vconn);
-}
+    ~scoped_ts_object() {
+        D(ts);
+    }
+
+    T get() const {
+        return ts;
+    }
+
+    T release() {
+        T tmp(nullptr);
+        std::swap(ts, tmp);
+        return tmp;
+    }
+
+private:
+    T ts;
+};
 
 template<> std::string stringof<TSEvent>(const TSEvent&);
 

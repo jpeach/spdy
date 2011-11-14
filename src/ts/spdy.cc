@@ -21,6 +21,8 @@
 
 #include "io.h"
 
+static int spdy_vconn_io(TSCont, TSEvent, void *);
+
 static void
 spdy_reset_stream(
         spdy_io_control *   io,
@@ -52,6 +54,36 @@ spdy_reset_stream(
 }
 
 static void
+spdy_syn_stream(
+        const spdy::message_header& header,
+        spdy_io_control *           io,
+        const uint8_t __restrict *  ptr)
+{
+    spdy::syn_stream_message    syn;
+    spdy_io_stream *            stream;
+
+    syn = spdy::syn_stream_message::parse(ptr, header.datalen);
+    if (!io->valid_client_stream_id(syn.stream_id)) {
+        // XXX send a PROTOCOL_ERROR
+    }
+
+    stream = io->create_stream(syn.stream_id);
+    stream->headers = spdy::key_value_block::parse(
+                header.control.version,
+                io->decompressor,
+                ptr + spdy::syn_stream_message::size,
+                header.datalen - spdy::syn_stream_message::size);
+
+    debug_protocol("%s frame stream=%u associated=%u priority=%u headers=%zu",
+            cstringof(header.control.type), syn.stream_id,
+            syn.associated_id, syn.priority, stream->headers.size());
+
+    // XXX check for required headers here?
+
+    stream->start();
+}
+
+static void
 dispatch_spdy_control_frame(
         const spdy::message_header& header,
         spdy_io_control *           io,
@@ -63,15 +95,7 @@ dispatch_spdy_control_frame(
 
     switch (header.control.type) {
     case spdy::CONTROL_SYN_STREAM:
-        msg.stream = spdy::syn_stream_message::parse(ptr, header.datalen);
-        debug_protocol("%s frame stream=%u associated=%u priority=%u headers=%u",
-                cstringof(header.control.type), msg.stream.stream_id,
-                msg.stream.associated_id, msg.stream.priority,
-                msg.stream.header_count);
-
-        spdy::parse_header_block(io->decompressor,
-                ptr + spdy::syn_stream_message::size,
-                header.datalen - spdy::syn_stream_message::size);
+        spdy_syn_stream(header, io, ptr);
 
         spdy_reset_stream(io, msg.stream.stream_id, spdy::REFUSED_STREAM);
         break;
@@ -186,7 +210,7 @@ spdy_vconn_io(TSCont contp, TSEvent ev, void * edata)
 }
 
 static int
-spdy_accept(TSCont contp, TSEvent ev, void * edata)
+spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
 {
     TSVConn vconn;
     spdy_io_control * io;
@@ -200,6 +224,7 @@ spdy_accept(TSCont contp, TSEvent ev, void * edata)
         io = new spdy_io_control(vconn);
         io->input.watermark(spdy::message_header::size);
         io->output.watermark(spdy::message_header::size);
+        // XXX is contp leaked here?
         contp = TSContCreate(spdy_vconn_io, TSMutexCreate());
         TSContDataSet(contp, io);
         TSVConnRead(vconn, contp, io->input.buffer, INT64_MAX);
@@ -218,7 +243,7 @@ spdy_initialize(uint16_t port)
     TSCont    contp;
     TSAction  action;
 
-    contp = TSContCreate(spdy_accept, TSMutexCreate());
+    contp = TSContCreate(spdy_accept_io, TSMutexCreate());
     action = TSNetAccept(contp, port, -1 /* domain */, 1 /* accept threads */);
     if (TSActionDone(action)) {
         debug_plugin("accept action done?");

@@ -8,3 +8,5 @@
   for SPDYv3, but the only serious client (Chrome) implements SPDYv2. Nice.
 
 * err, protocol error handling. That would help.
+
+* Implement request caching using TSCacheRead() and TSCacheWrite().

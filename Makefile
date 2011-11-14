@@ -29,25 +29,27 @@ CPPFLAGS := \
 LinkBundle = $(CXX) -bundle -Wl,-bundle_loader,$(TS)/bin/traffic_server -o $@ $^
 LinkProgram = $(CXX) -o $@ $^
 
-Spdy_Sources := \
-	src/ts/spdy.cc \
-	src/ts/strings.cc
+Spdy_Objects := \
+	src/ts/io.o \
+	src/ts/spdy.o \
+	src/ts/stream.o \
+	src/ts/strings.o
 
-LibSpdy_Sources := \
-	src/lib/spdy/message.cc \
-	src/lib/spdy/strings.cc \
-	src/lib/spdy/zstream.cc
+LibSpdy_Objects := \
+	src/lib/spdy/message.o \
+	src/lib/spdy/strings.o \
+	src/lib/spdy/zstream.o
 
-Test_Sources := \
-	src/test/zstream.cc
+LibPlatform_Objects := \
+	src/lib/platform/logging.o
 
-Spdy_Objects := $(Spdy_Sources:.cc=.o)
-LibSpdy_Objects := $(LibSpdy_Sources:.cc=.o)
-Test_Objects := $(Test_Sources:.cc=.o)
+Test_Objects := \
+	src/test/zstream.o
 
 OBJECTS := \
 	$(Spdy_Objects) \
 	$(LibSpdy_Objects) \
+	$(LibPlatform_Objects) \
 	$(Test_Objects)
 
 TARGETS := spdy.so test.zlib
@@ -58,7 +60,7 @@ install: spdy.so
 	$(SUDO) $(TSXS) -i -o $<
 	$(SUDO) $(TS)/bin/trafficserver restart
 
-spdy.so: $(Spdy_Objects) $(LibSpdy_Objects)
+spdy.so: $(Spdy_Objects) $(LibSpdy_Objects) $(LibPlatform_Objects)
 	$(LinkBundle) -lz
 
 test.zlib: src/test/zstream.o $(LibSpdy_Objects)
@@ -68,8 +70,8 @@ test: test.zlib
 	for t in $^ ; do ./$$t ; done
 
 clean:
-	rm -f $(TARGETS) $(OBJECTS)
-	rm -rf *.dSYM
+	@rm -f $(TARGETS) $(OBJECTS)
+	@rm -rf *.dSYM
 
 .PHONY: all install clean test
 

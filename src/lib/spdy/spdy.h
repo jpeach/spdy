@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdexcept>
 #include <string>
+#include <map>
 
 #include "zstream.h"
 
@@ -152,8 +153,27 @@ namespace spdy {
         static const unsigned size = 8; /* bytes */
     };
 
-size_t parse_header_block(
-        zstream<decompress>& decompressor, const uint8_t __restrict * ptr, size_t len);
+    struct key_value_block
+    {
+        typedef std::map<std::string, std::string> map_type;
+
+        map_type::size_type size() const {
+            return headers.size();
+        }
+
+        bool exists(const std::string& key) const {
+            return headers.find(key) != headers.end();
+        }
+
+        std::string& operator[] (const std::string& key) {
+            return headers[key];
+        }
+
+        map_type headers;
+
+        static key_value_block parse(unsigned, zstream<decompress>&, const uint8_t *, size_t);
+    };
+
 
 } // namespace spdy
 

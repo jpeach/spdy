@@ -6,6 +6,24 @@ SPDY proxy at localhost:9999:
 
     chrome --use-spdy=no-ssl --host-resolver-rules="MAP * localhost:9999"
 
+Installation and oonfiguration
+==============================
+
+To install, copy spdy.so into the TrafficServer plugins directory and add the
+following to plugin.config, where PORT is the port to listen on:
+
+    spdy.so PORT
+
+To enable debug, configure the spdy diagnostig tag by adding the follosing to
+recods.config:
+
+    CONFIG proxy.config.diags.debug.tags STRING spdy.*
+
+Valid SPDY debugging tags are:
+    spdy.protocol   - SPDY protocol logging
+    spdy.plugin     - SPDY plugin lifecycle
+    spdy.http       - HTTP client request processing
+
 Resources
 =========
 

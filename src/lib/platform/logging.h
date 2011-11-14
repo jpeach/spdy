@@ -48,6 +48,7 @@ template <typename T> std::string stringof(const T&);
 
 #define debug_protocol(fmt, ...)    debug_tag("spdy.protocol", fmt, ##__VA_ARGS__)
 #define debug_plugin(fmt, ...)      debug_tag("spdy.plugin", fmt, ##__VA_ARGS__)
+#define debug_http(fmt, ...)        debug_tag("spdy.http", fmt, ##__VA_ARGS__)
 
 // Internal logging helpers
 namespace detail {
