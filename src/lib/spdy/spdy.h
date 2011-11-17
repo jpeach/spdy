@@ -153,9 +153,25 @@ namespace spdy {
         static const unsigned size = 8; /* bytes */
     };
 
+    struct url_components
+    {
+        std::string method;
+        std::string scheme;
+        std::string hostport;
+        std::string path;
+        std::string version;
+
+        bool is_complete() const {
+            return !(method.empty() && scheme.empty() && hostport.empty() &&
+                    path.empty() && version.empty());
+        }
+    };
+
     struct key_value_block
     {
         typedef std::map<std::string, std::string> map_type;
+        typedef map_type::const_iterator const_iterator;
+        typedef map_type::iterator iterator;
 
         map_type::size_type size() const {
             return headers.size();
@@ -169,7 +185,18 @@ namespace spdy {
             return headers[key];
         }
 
-        map_type headers;
+        const std::string& operator[] (const std::string& key) const {
+            return headers[key];
+        }
+
+        const_iterator begin() const { return headers.begin(); }
+        const_iterator end() const { return headers.end(); }
+
+        url_components& url() { return components; }
+        const url_components& url() const { return components; }
+
+        url_components components;
+        mutable /* XXX */ map_type headers;
 
         static key_value_block parse(unsigned, zstream<decompress>&, const uint8_t *, size_t);
     };

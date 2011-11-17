@@ -28,6 +28,8 @@ void TSDebug(const char *, const char *, ...)
 
 void TSError(const char *, ...)
     __attribute__((format(printf, 1, 2)));
+
+int TSIsDebugTagSet(const char*);
 }
 
 template <typename T, unsigned N> unsigned countof(const T(&)[N]) {

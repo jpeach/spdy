@@ -5,6 +5,8 @@
 
 #include "spdy.h"
 #include "zstream.h"
+#include <platform/logging.h>
+
 #include <stdexcept>
 #include <vector>
 #include <map>
@@ -204,7 +206,7 @@ decompress_headers(
     return spdy::z_ok;
 }
 
-static std::map<std::string, std::string>
+static spdy::key_value_block
 parse_name_value_pairs_v2(
         const uint8_t __restrict * ptr, size_t len)
 {
@@ -212,7 +214,7 @@ parse_name_value_pairs_v2(
     int32_t namelen;
     const uint8_t __restrict * end = ptr + len;
 
-    std::map<std::string, std::string> pairs;
+    spdy::key_value_block kvblock;
 
     if (len < sizeof(int32_t)) {
         // XXX throw
@@ -249,10 +251,24 @@ parse_name_value_pairs_v2(
         val.assign((const char *)ptr, nbytes);
         std::advance(ptr, nbytes);
 
-        pairs[key] = val;
+        debug_protocol("%s => %s", key.c_str(), val.c_str());
+
+        if (key == "host") {
+            kvblock.url().hostport = val;
+        } else if (key == "scheme") {
+            kvblock.url().scheme = val;
+        } else if (key == "url") {
+            kvblock.url().path = val;
+        } else if (key == "method") {
+            kvblock.url().method = val;
+        } else if (key == "version") {
+            kvblock.url().version = val;
+        } else {
+            kvblock.headers[key] = val;
+        }
     }
 
-    return pairs;
+    return kvblock;
 }
 
 spdy::key_value_block
@@ -275,8 +291,7 @@ spdy::key_value_block::parse(
         // XXX
     }
 
-    kvblock.headers = parse_name_value_pairs_v2(&bytes[0], bytes.size());
-    return kvblock;
+    return parse_name_value_pairs_v2(&bytes[0], bytes.size());
 }
 
 /* vim: set sw=4 ts=4 tw=79 et : */

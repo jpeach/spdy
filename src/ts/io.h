@@ -26,7 +26,7 @@ struct spdy_io_stream
 
     unsigned                stream_id;
     TSAction                action;
-    spdy::key_value_block   headers;
+    spdy::key_value_block   kvblock;
 
     static spdy_io_stream * get(TSCont contp) {
         return (spdy_io_stream *)TSContDataGet(contp);

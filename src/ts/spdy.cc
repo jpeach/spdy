@@ -68,7 +68,7 @@ spdy_syn_stream(
     }
 
     stream = io->create_stream(syn.stream_id);
-    stream->headers = spdy::key_value_block::parse(
+    stream->kvblock = spdy::key_value_block::parse(
                 header.control.version,
                 io->decompressor,
                 ptr + spdy::syn_stream_message::size,
@@ -76,11 +76,16 @@ spdy_syn_stream(
 
     debug_protocol("%s frame stream=%u associated=%u priority=%u headers=%zu",
             cstringof(header.control.type), syn.stream_id,
-            syn.associated_id, syn.priority, stream->headers.size());
+            syn.associated_id, syn.priority, stream->kvblock.size());
+
+    if (!stream->kvblock.url().is_complete()) {
+        // XXX missing URL, protocol error
+    }
 
     // XXX check for required headers here?
 
     stream->start();
+    spdy_reset_stream(io, syn.stream_id, spdy::REFUSED_STREAM);
 }
 
 static void
@@ -89,15 +94,9 @@ dispatch_spdy_control_frame(
         spdy_io_control *           io,
         const uint8_t __restrict *  ptr)
 {
-    union {
-        spdy::syn_stream_message stream;
-    } msg;
-
     switch (header.control.type) {
     case spdy::CONTROL_SYN_STREAM:
         spdy_syn_stream(header, io, ptr);
-
-        spdy_reset_stream(io, msg.stream.stream_id, spdy::REFUSED_STREAM);
         break;
     case spdy::CONTROL_SYN_REPLY:
     case spdy::CONTROL_RST_STREAM:
@@ -214,8 +213,6 @@ spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
 {
     TSVConn vconn;
     spdy_io_control * io;
-
-    TSAssert(contp == nullptr);
 
     switch (ev) {
     case TS_EVENT_NET_ACCEPT:

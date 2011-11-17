@@ -10,3 +10,5 @@
 * err, protocol error handling. That would help.
 
 * Implement request caching using TSCacheRead() and TSCacheWrite().
+
+* Support hostport specification by parsing the port from the SPDY host header.
