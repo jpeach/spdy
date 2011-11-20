@@ -17,7 +17,12 @@
 #include <ts/ts.h>
 #include <spdy/spdy.h>
 #include <platform/logging.h>
+#include <netinet/in.h>
 #include "io.h"
+
+#define SPDY_EVENT_HTTP_SUCCESS     90000
+#define SPDY_EVENT_HTTP_FAILURE     90001
+#define SPDY_EVENT_HTTP_TIMEOUT     90002
 
 static int spdy_session_io(TSCont, TSEvent, void *);
 static TSMLoc make_ts_http_request(TSMBuffer, const spdy::key_value_block&);
@@ -32,18 +37,75 @@ struct scoped_http_header
         header = TSHttpHdrCreate(buffer);
     }
 
-    ~scoped_http_header() {
-        TSHttpHdrDestroy(buffer, header);
-        TSHandleMLocRelease(buffer, TS_NULL_MLOC, header);
+    scoped_http_header(TSMBuffer b, TSMLoc h)
+            : header(h), buffer(b) {
     }
 
-    operator bool() const { return header != TS_NULL_MLOC; }
-    TSMLoc get() { return header; }
+    ~scoped_http_header() {
+        if (header != TS_NULL_MLOC) {
+            TSHttpHdrDestroy(buffer, header);
+            TSHandleMLocRelease(buffer, TS_NULL_MLOC, header);
+        }
+    }
+
+    operator bool() const {
+        return header != TS_NULL_MLOC;
+    }
+
+    operator TSMLoc() const {
+        return header;
+    }
+
+    TSMLoc get() {
+        return header;
+    }
+
+    TSMLoc release() {
+        TSMLoc tmp = TS_NULL_MLOC;
+        std::swap(tmp, header);
+        return tmp;
+    }
 
 private:
     TSMLoc      header;
     TSMBuffer   buffer;
 };
+
+struct inet_address
+{
+    explicit inet_address(const struct sockaddr * addr) {
+        memcpy(&sa.storage, addr, addr->sa_len);
+    }
+
+    uint16_t& port() {
+        switch (sa.storage.ss_family) {
+        case AF_INET:
+            return sa.in.sin_port;
+        case AF_INET6:
+            return sa.in6.sin6_port;
+        default:
+            TSReleaseAssert("invalid inet address type");
+            return sa.in.sin_port;
+        }
+    }
+
+    const sockaddr * saddr() const {
+        return &sa.sa;
+    }
+
+private:
+    union {
+        struct sockaddr_in  in;
+        struct sockaddr_in6 in6;
+        struct sockaddr     sa;
+        struct sockaddr_storage storage;
+    } sa;
+};
+
+template <> std::string
+stringof<inet_address>(const inet_address& inaddr) {
+    return cstringof(*inaddr.saddr());
+}
 
 static void
 resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
@@ -59,13 +121,20 @@ resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
 
 static bool
 initiate_client_request(
-        spdy_io_stream * stream)
-{
-    scoped_mbuffer  buffer;
-    TSMLoc          header;
+        spdy_io_stream *        stream,
+        const struct sockaddr * addr,
+        TSCont                  contp)
 
-    header = make_ts_http_request(buffer.get(), stream->kvblock);
-    if (header == TS_NULL_MLOC) {
+{
+    scoped_mbuffer      buffer;
+    spdy_io_control::buffered_stream iobuf;
+    int64_t nbytes;
+    const char * ptr;
+    TSIOBufferBlock blk;
+
+    scoped_http_header header(
+            buffer.get(), make_ts_http_request(buffer.get(), stream->kvblock));
+    if (!header) {
         return false;
     }
 
@@ -88,6 +157,17 @@ initiate_client_request(
     //      TSVConnRead() to get the HTTP response.
     //      TSHttpParser to parse the response (if needed).
 
+    TSFetchEvent events = {
+        /* success_event_id */ SPDY_EVENT_HTTP_SUCCESS,
+        /* failure_event_id */ SPDY_EVENT_HTTP_FAILURE,
+        /* timeout_event_id */ SPDY_EVENT_HTTP_TIMEOUT
+    };
+
+    TSHttpHdrPrint(buffer.get(), header, iobuf.buffer);
+    blk = TSIOBufferStart(iobuf.buffer);
+    ptr = (const char *)TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
+
+    TSFetchUrl(ptr, nbytes, addr, contp, AFTER_BODY, events);
     return true;
 }
 
@@ -100,11 +180,11 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
     switch (ev) {
     case TS_EVENT_HOST_LOOKUP:
         if (dns) {
-            const struct sockaddr * addr;
-            addr = TSHostLookupResultAddrGet(dns);
+            inet_address addr(TSHostLookupResultAddrGet(dns));
             debug_http("resolved %s => %s",
-                    stream->kvblock.url().hostport.c_str(), cstringof(*addr));
-            initiate_client_request(stream);
+                    stream->kvblock.url().hostport.c_str(), cstringof(addr));
+            addr.port() = htons(80); // XXX should be parsed from hostport
+            initiate_client_request(stream, addr.saddr(), contp);
         } else {
             // XXX
             // Experimentally, if the DNS lookup fails, web proxies return 502
@@ -113,6 +193,18 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
         }
 
         stream->action = NULL;
+        break;
+
+    case SPDY_EVENT_HTTP_SUCCESS:
+        debug_http("HTTP success event");
+        break;
+
+    case SPDY_EVENT_HTTP_FAILURE:
+        debug_http("HTTP failure event");
+        break;
+
+    case SPDY_EVENT_HTTP_TIMEOUT:
+        debug_http("HTTP timeout event");
         break;
 
     default:
@@ -174,7 +266,7 @@ make_ts_http_request(
         const spdy::key_value_block& kvblock)
 {
 
-    TSMLoc header = TSHttpHdrCreate(buffer);
+    scoped_http_header header(buffer);
 
     TSHttpHdrTypeSet(buffer, header, TS_HTTP_TYPE_REQUEST);
 
@@ -199,7 +291,7 @@ make_ts_http_request(
         }
     }
 
-    return header;
+    return header.release();
 }
 
 spdy_io_stream::spdy_io_stream(unsigned s)
