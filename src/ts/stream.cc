@@ -195,9 +195,23 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
         stream->action = NULL;
         break;
 
-    case SPDY_EVENT_HTTP_SUCCESS:
-        debug_http("HTTP success event");
+    case SPDY_EVENT_HTTP_SUCCESS: {
+        int len;
+        char * body;
+        TSMBuffer buffer;
+        TSMLoc header;
+
+        TSReleaseAssert(TSFetchHdrGet((TSHttpTxn)edata, &buffer, &header) == TS_SUCCESS);
+        print_ts_http_header(buffer, header);
+
+        body = TSFetchRespGet((TSHttpTxn)edata, &len);
+        if (body) {
+            debug_http("HTTP success event:%*.*s", len, len, body);
+        } else {
+            debug_http("HTTP success event");
+        }
         break;
+    }
 
     case SPDY_EVENT_HTTP_FAILURE:
         debug_http("HTTP failure event");
