@@ -58,7 +58,7 @@ all: $(TARGETS)
 
 install: spdy.so
 	$(SUDO) $(TSXS) -i -o $<
-	$(SUDO) $(TS)/bin/trafficserver restart
+#$(SUDO) $(TS)/bin/trafficserver restart
 
 spdy.so: $(Spdy_Objects) $(LibSpdy_Objects) $(LibPlatform_Objects)
 	$(LinkBundle) -lz

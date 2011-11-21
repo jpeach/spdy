@@ -122,6 +122,36 @@ namespace spdy {
         static const unsigned size = 10; /* bytes */
     };
 
+    // SYN_REPLY frame:
+    //
+    // +------------------------------------+
+    // |1|    version    |         2        |
+    // +------------------------------------+
+    // |  Flags (8)  |  Length (24 bits)    |
+    // +------------------------------------+
+    // |X|           Stream-ID (31bits)     |
+    // +------------------------------------+
+    // | Number of Name/Value pairs (int32) |   <+
+    // +------------------------------------+    |
+    // |     Length of name (int32)         |    | This section is the "Name/Value
+    // +------------------------------------+    | Header Block", and is compressed.
+    // |           Name (string)            |    |
+    // +------------------------------------+    |
+    // |     Length of value  (int32)       |    |
+    // +------------------------------------+    |
+    // |          Value   (string)          |    |
+    // +------------------------------------+    |
+    // |           (repeats)                |   <+
+
+    struct syn_reply_message
+    {
+        unsigned stream_id;
+
+        static syn_stream_message parse(const uint8_t *, size_t);
+        static size_t marshall(const syn_reply_message&, uint8_t *, size_t);
+        static const unsigned size = 10; /* bytes */
+    };
+
     // GOAWAY frame:
     //
     // +----------------------------------+
@@ -188,6 +218,9 @@ namespace spdy {
         const std::string& operator[] (const std::string& key) const {
             return headers[key];
         }
+
+        // Return the number of marshalling bytes this kvblock needs.
+        size_t nbytes() const;
 
         const_iterator begin() const { return headers.begin(); }
         const_iterator end() const { return headers.end(); }

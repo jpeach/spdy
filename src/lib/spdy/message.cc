@@ -294,4 +294,20 @@ spdy::key_value_block::parse(
     return parse_name_value_pairs_v2(&bytes[0], bytes.size());
 }
 
+size_t
+spdy::key_value_block::nbytes(unsigned version) const
+{
+    size_t nbytes = 0;
+    // Length fields are 2 bytes in SPDYv2 and 4 in later versions.
+    size_t lensz = version < 3 ? 2 : 4;
+
+    nbytes += lensz;
+    for (auto ptr(begin()); ptr != end(); ++ptr) {
+        nbytes += lensz + ptr->first.size();
+        nbytes += lensz + ptr->second.size();
+    }
+
+    return nbytes;
+}
+
 /* vim: set sw=4 ts=4 tw=79 et : */

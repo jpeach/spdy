@@ -80,9 +80,8 @@ spdy_syn_stream(
 
     if (!stream->kvblock.url().is_complete()) {
         // XXX missing URL, protocol error
+        // 3.2.1 400 Bad Request
     }
-
-    // XXX check for required headers here?
 
     stream->start();
     spdy_reset_stream(io, syn.stream_id, spdy::REFUSED_STREAM);
