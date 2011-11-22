@@ -43,14 +43,15 @@ LibSpdy_Objects := \
 LibPlatform_Objects := \
 	src/lib/platform/logging.o
 
-Test_Objects := \
+Zlib_Test_Objects := \
+	src/test/stubs.o \
 	src/test/zstream.o
 
 OBJECTS := \
 	$(Spdy_Objects) \
 	$(LibSpdy_Objects) \
 	$(LibPlatform_Objects) \
-	$(Test_Objects)
+	$(Zlib_Test_Objects)
 
 TARGETS := spdy.so test.zlib
 
@@ -63,7 +64,7 @@ install: spdy.so
 spdy.so: $(Spdy_Objects) $(LibSpdy_Objects) $(LibPlatform_Objects)
 	$(LinkBundle) -lz
 
-test.zlib: src/test/zstream.o $(LibSpdy_Objects)
+test.zlib: $(Zlib_Test_Objects) $(LibSpdy_Objects)
 	$(LinkProgram) -lz
 
 test: test.zlib
