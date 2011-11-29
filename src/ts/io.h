@@ -17,6 +17,9 @@
 #ifndef IO_H_C3455D48_1D3C_49C0_BB81_844F4C7946A5
 #define IO_H_C3455D48_1D3C_49C0_BB81_844F4C7946A5
 
+struct spdy_io_stream;
+struct spdy_io_control;
+
 struct spdy_io_stream
 {
     explicit spdy_io_stream(unsigned);
@@ -25,8 +28,11 @@ struct spdy_io_stream
     void start();
 
     unsigned                stream_id;
+    spdy::protocol_version  version;
     TSAction                action;
     spdy::key_value_block   kvblock;
+
+    spdy_io_control *       io;
 
     static spdy_io_stream * get(TSCont contp) {
         return (spdy_io_stream *)TSContDataGet(contp);
@@ -61,6 +67,9 @@ struct spdy_io_control
         }
 
     };
+
+    // TSVIOReenable() the associated TSVConnection.
+    void reenable();
 
     bool valid_client_stream_id(unsigned stream_id) const {
         if (stream_id == 0) { return false; } // must not be zero

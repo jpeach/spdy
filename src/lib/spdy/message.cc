@@ -95,15 +95,15 @@ spdy::message_header::marshall(
     }
 
     if (msg.is_control) {
-        insert<uint16_t>(htonl(0x80000000u | spdy::PROTOCOL_VERSION), ptr);
-        insert<uint16_t>(msg.control.type, ptr);
+        insert<uint16_t>(htons(0x8000u | spdy::PROTOCOL_VERSION), ptr);
+        insert<uint16_t>(htons(msg.control.type), ptr);
         insert<uint32_t>(htonl((msg.flags << 24) | (msg.datalen & 0x00ffffffu)), ptr);
     } else {
         insert_stream_id(msg.data.stream_id, ptr);
         insert<uint32_t>(htonl((msg.flags << 24) | (msg.datalen & 0x00ffffffu)), ptr);
     }
 
-    return 0;
+    return message_header::size;
 }
 
 spdy::syn_stream_message
@@ -163,7 +163,30 @@ spdy::rst_stream_message::marshall(
 
     insert_stream_id(msg.stream_id, ptr);
     insert<uint32_t>(msg.status_code, ptr);
-    return 8;
+    return rst_stream_message::size;
+}
+
+size_t
+spdy::syn_reply_message::marshall(
+        protocol_version            version,
+        const syn_reply_message&    msg,
+        uint8_t *                   ptr,
+        size_t                      len)
+{
+    if (len < size(version)) {
+        throw protocol_error(std::string("short syn_reply buffer"));
+    }
+
+    if (version < PROTOCOL_VERSION_3) {
+        // SPDYv2 has 2 extraneous bytes at the end. How nice that the SPDYv2
+        // spec is no longer on the internets.
+        insert_stream_id(msg.stream_id, ptr);
+        insert<uint16_t>(0, ptr);
+    } else {
+        insert_stream_id(msg.stream_id, ptr);
+    }
+
+    return size(version);
 }
 
 // +------------------------------------+
@@ -204,6 +227,84 @@ decompress_headers(
     }
 
     return spdy::z_ok;
+}
+
+static ssize_t
+marshall_string_v2(
+        spdy::zstream<spdy::compress>&  compressor,
+        const std::string&              strval,
+        uint8_t *                       ptr,
+        size_t                          len,
+        unsigned                        flags)
+{
+    size_t      nbytes = 0;
+    ssize_t     status;
+    uint16_t    tmp16;
+
+    tmp16 = htons(strval.size());
+    compressor.input(&tmp16, sizeof(tmp16));
+    status = compressor.consume(ptr + nbytes, len - nbytes, flags);
+    if (status < 0) {
+        return status;
+    }
+
+    nbytes += status;
+
+    compressor.input(strval.c_str(), strval.size());
+    status = compressor.consume(ptr + nbytes, len - nbytes, flags);
+    if (status < 0) {
+        return status;
+    }
+
+    nbytes += status;
+    return nbytes;
+}
+
+static ssize_t
+marshall_name_value_pairs_v2(
+        spdy::zstream<spdy::compress>&  compressor,
+        const spdy::key_value_block&    kvblock,
+        uint8_t *                       ptr,
+        size_t                          len)
+{
+    size_t      nbytes = 0;
+    ssize_t     status;
+    uint16_t    tmp16;
+
+    tmp16 = htons(kvblock.size());
+    compressor.input(&tmp16, sizeof(tmp16));
+    status = compressor.consume(ptr + nbytes, len - nbytes, 0);
+    if (status < 0) {
+        return 0; // XXX
+    }
+
+    nbytes += status;
+
+    for (auto kv(kvblock.begin()); kv != kvblock.end(); ++kv) {
+        status = marshall_string_v2(
+                compressor, kv->first, ptr + nbytes, len - nbytes, 0);
+        if (status < 0) {
+            return 0; // XXX
+        }
+
+        nbytes += status;
+
+        status = marshall_string_v2(
+                compressor, kv->second, ptr + nbytes, len - nbytes, 0);
+        if (status < 0) {
+            return 0; // XXX
+        }
+
+        nbytes += status;
+    }
+
+    status = compressor.consume(ptr + nbytes, len - nbytes);
+    if (status < 0) {
+        return 0; // XXX
+    }
+
+    nbytes += status;
+    return nbytes;
 }
 
 static spdy::key_value_block
@@ -251,8 +352,9 @@ parse_name_value_pairs_v2(
         val.assign((const char *)ptr, nbytes);
         std::advance(ptr, nbytes);
 
-        debug_protocol("%s => %s", key.c_str(), val.c_str());
-
+        // XXX Extract this assignment section into a lambda. This would let us
+        // parse the kvblock into a key_value_block, or straight into the
+        // corresponding ATS data structures.
         if (key == "host") {
             kvblock.url().hostport = val;
         } else if (key == "scheme") {
@@ -273,7 +375,7 @@ parse_name_value_pairs_v2(
 
 spdy::key_value_block
 spdy::key_value_block::parse(
-        unsigned                    version,
+        protocol_version            version,
         zstream<decompress>&        decompressor,
         const uint8_t __restrict *  ptr,
         size_t                      len)
@@ -281,7 +383,7 @@ spdy::key_value_block::parse(
     std::vector<uint8_t>    bytes;
     key_value_block         kvblock;
 
-    if (version != 2) {
+    if (version != PROTOCOL_VERSION_2) {
         // XXX support v3 and throw a proper damn error.
         throw std::runtime_error("unsupported version");
     }
@@ -295,11 +397,41 @@ spdy::key_value_block::parse(
 }
 
 size_t
-spdy::key_value_block::nbytes(unsigned version) const
+spdy::key_value_block::marshall(
+        protocol_version            version,
+        spdy::zstream<compress>&    compressor,
+        const key_value_block&      kvblock,
+        uint8_t *                   ptr,
+        size_t                      len)
+{
+    ssize_t nbytes;
+
+    if (version != PROTOCOL_VERSION_2) {
+        // XXX support v3 and throw a proper damn error.
+        throw std::runtime_error("unsupported version");
+    }
+
+    nbytes = marshall_name_value_pairs_v2(compressor, kvblock, ptr, len);
+    if (nbytes < 0) {
+        throw std::runtime_error("marshalling failure");
+    }
+
+    return nbytes;
+}
+
+size_t
+spdy::key_value_block::nbytes(protocol_version version) const
 {
     size_t nbytes = 0;
+    size_t lensz;
+
     // Length fields are 2 bytes in SPDYv2 and 4 in later versions.
-    size_t lensz = version < 3 ? 2 : 4;
+    switch (version) {
+    case PROTOCOL_VERSION_3: lensz = 4; break;
+    case PROTOCOL_VERSION_2: lensz = 2; break;
+    default:
+        throw std::runtime_error("unsupported version");
+    }
 
     nbytes += lensz;
     for (auto ptr(begin()); ptr != end(); ++ptr) {

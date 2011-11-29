@@ -16,10 +16,20 @@
 
 namespace spdy {
 
+    enum protocol_version : unsigned {
+        PROTOCOL_VERSION_2 = 2,
+        PROTOCOL_VERSION_3 = 3
+    };
+
     enum : unsigned {
         PROTOCOL_VERSION = 3,
         MAX_FRAME_LENGTH = (1u << 24)
     };
+
+    enum : unsigned {
+        FLAG_FIN            = 1,
+        FLAG_COMPRESS       = 2
+   };
 
     struct protocol_error : public std::runtime_error {
         explicit protocol_error(const std::string& msg)
@@ -37,6 +47,7 @@ namespace spdy {
         CONTROL_HEADERS         = 8,
         CONTROL_WINDOW_UPDATE   = 9
     };
+
 
     enum error : unsigned {
         PROTOCOL_ERROR        = 1,
@@ -85,7 +96,7 @@ namespace spdy {
 
         static message_header parse(const uint8_t *, size_t);
         static size_t marshall(const message_header&, uint8_t *, size_t);
-        static const unsigned size = 8; /* bytes */
+        enum : unsigned { size = 8 }; /* bytes */
     };
 
     // SYN_STREAM frame:
@@ -119,7 +130,7 @@ namespace spdy {
         unsigned header_count;
 
         static syn_stream_message parse(const uint8_t *, size_t);
-        static const unsigned size = 10; /* bytes */
+        enum : unsigned { size = 10 }; /* bytes */
     };
 
     // SYN_REPLY frame:
@@ -148,8 +159,11 @@ namespace spdy {
         unsigned stream_id;
 
         static syn_stream_message parse(const uint8_t *, size_t);
-        static size_t marshall(const syn_reply_message&, uint8_t *, size_t);
-        static const unsigned size = 10; /* bytes */
+        static size_t marshall(protocol_version, const syn_reply_message&, uint8_t *, size_t);
+
+        static unsigned size(protocol_version v) {
+            return (v == PROTOCOL_VERSION_2) ? 6 : 4; /* bytes */
+        }
     };
 
     // GOAWAY frame:
@@ -170,7 +184,7 @@ namespace spdy {
         unsigned status_code;
 
         static goaway_message parse(const uint8_t *, size_t);
-        static const unsigned size = 8; /* bytes */
+        enum : unsigned { size = 8 }; /* bytes */
     };
 
     struct rst_stream_message
@@ -180,7 +194,7 @@ namespace spdy {
 
         static rst_stream_message parse(const uint8_t *, size_t);
         static size_t marshall(const rst_stream_message&, uint8_t *, size_t);
-        static const unsigned size = 8; /* bytes */
+        enum : unsigned { size = 8 }; /* bytes */
     };
 
     struct url_components
@@ -220,7 +234,7 @@ namespace spdy {
         }
 
         // Return the number of marshalling bytes this kvblock needs.
-        size_t nbytes() const;
+        size_t nbytes(protocol_version) const;
 
         const_iterator begin() const { return headers.begin(); }
         const_iterator end() const { return headers.end(); }
@@ -231,7 +245,10 @@ namespace spdy {
         url_components components;
         mutable /* XXX */ map_type headers;
 
-        static key_value_block parse(unsigned, zstream<decompress>&, const uint8_t *, size_t);
+        static key_value_block parse(protocol_version, zstream<decompress>&,
+                const uint8_t *, size_t);
+        static size_t marshall(protocol_version, zstream<compress>&,
+                const key_value_block&, uint8_t *, size_t);
     };
 
 

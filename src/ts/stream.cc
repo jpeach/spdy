@@ -19,6 +19,7 @@
 #include <platform/logging.h>
 #include <netinet/in.h>
 #include "io.h"
+#include "protocol.h"
 
 #define SPDY_EVENT_HTTP_SUCCESS     90000
 #define SPDY_EVENT_HTTP_FAILURE     90001
@@ -26,7 +27,9 @@
 
 static int spdy_session_io(TSCont, TSEvent, void *);
 static TSMLoc make_ts_http_request(TSMBuffer, const spdy::key_value_block&);
-static void print_ts_http_header(TSMBuffer, TSMLoc);
+static void print_ts_http_header(unsigned, TSMBuffer, TSMLoc);
+static void send_http_txn_result(spdy_io_stream *, TSHttpTxn);
+static void send_http_txn_error(spdy_io_stream *, TSHttpStatus);
 
 typedef scoped_ts_object<TSMBuffer, TSMBufferCreate, TSMBufferDestroy> scoped_mbuffer;
 
@@ -138,7 +141,7 @@ initiate_client_request(
         return false;
     }
 
-    print_ts_http_header(buffer.get(), header);
+    print_ts_http_header(stream->stream_id, buffer.get(), header);
 
     // Need the kv:version and kv:method to actually make the request. It looks
     // like the most straightforward way is to build the HTTP request by hand
@@ -167,6 +170,9 @@ initiate_client_request(
     blk = TSIOBufferStart(iobuf.buffer);
     ptr = (const char *)TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
 
+    // XXX if the TCP connection drops while this request is in-flight, it will
+    // complete with a dangling stream pointer. Need to figure out how we can
+    // cancel this.
     TSFetchUrl(ptr, nbytes, addr, contp, AFTER_BODY, events);
     return true;
 }
@@ -181,7 +187,7 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
     case TS_EVENT_HOST_LOOKUP:
         if (dns) {
             inet_address addr(TSHostLookupResultAddrGet(dns));
-            debug_http("resolved %s => %s",
+            debug_http("[%u] resolved %s => %s", stream->stream_id,
                     stream->kvblock.url().hostport.c_str(), cstringof(addr));
             addr.port() = htons(80); // XXX should be parsed from hostport
             initiate_client_request(stream, addr.saddr(), contp);
@@ -195,30 +201,19 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
         stream->action = NULL;
         break;
 
-    case SPDY_EVENT_HTTP_SUCCESS: {
-        int len;
-        char * body;
-        TSMBuffer buffer;
-        TSMLoc header;
-
-        TSReleaseAssert(TSFetchHdrGet((TSHttpTxn)edata, &buffer, &header) == TS_SUCCESS);
-        print_ts_http_header(buffer, header);
-
-        body = TSFetchRespGet((TSHttpTxn)edata, &len);
-        if (body) {
-            debug_http("HTTP success event:%*.*s", len, len, body);
-        } else {
-            debug_http("HTTP success event");
-        }
+    case SPDY_EVENT_HTTP_SUCCESS:
+        send_http_txn_result(stream, (TSHttpTxn)edata);
+        stream->io->reenable();
         break;
-    }
 
     case SPDY_EVENT_HTTP_FAILURE:
-        debug_http("HTTP failure event");
+        debug_http("[%u] HTTP failure event", stream->stream_id);
+        send_http_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
         break;
 
     case SPDY_EVENT_HTTP_TIMEOUT:
-        debug_http("HTTP timeout event");
+        debug_http("[%u] HTTP timeout event", stream->stream_id);
+        send_http_txn_error(stream, TS_HTTP_STATUS_GATEWAY_TIMEOUT);
         break;
 
     default:
@@ -229,7 +224,74 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
 }
 
 static void
-print_ts_http_header(TSMBuffer buffer, TSMLoc header)
+send_http_txn_error(
+        spdy_io_stream  *   stream,
+        TSHttpStatus        status)
+{
+    debug_http("[%u] sending a HTTP %d result", stream->stream_id, status);
+}
+
+static void
+send_http_txn_result(
+        spdy_io_stream  *   stream,
+        TSHttpTxn           txn)
+{
+    int         len;
+    char *      body;
+    TSMBuffer   buffer;
+    TSMLoc      header, field;
+    spdy::key_value_block kvblock;
+
+    if (TSFetchHdrGet(txn, &buffer, &header) != TS_SUCCESS) {
+        spdy_send_reset_stream(stream->io, stream->stream_id,
+                spdy::PROTOCOL_ERROR);
+        return;
+    }
+
+    print_ts_http_header(stream->stream_id, buffer, header);
+
+    field = TSMimeHdrFieldGet(buffer, header, 0);
+    while (field) {
+        TSMLoc next;
+        std::pair<const char *, int> name;
+        std::pair<const char *, int> value;
+
+        name.first = TSMimeHdrFieldNameGet(buffer, header, field, &name.second);
+
+        // The Connection, Keep-Alive, Proxy-Connection, and Transfer-Encoding
+        // headers are not valid and MUST not be sent.
+        if (strcmp(name.first, TS_MIME_FIELD_CONNECTION) == 0 ||
+                strcmp(name.first, TS_MIME_FIELD_KEEP_ALIVE) == 0 ||
+                strcmp(name.first, TS_MIME_FIELD_PROXY_CONNECTION) == 0 ||
+                strcmp(name.first, TS_MIME_FIELD_TRANSFER_ENCODING) == 0) {
+            goto skip;
+        }
+
+        value.first = TSMimeHdrFieldValueStringGet(buffer, header,
+                field, 0, &value.second);
+        kvblock[std::string(name.first, name.second)] =
+                std::string(value.first, value.second);
+
+skip:
+       next = TSMimeHdrFieldNext(buffer, header, field);
+       TSHandleMLocRelease(buffer, header, field);
+       field = next;
+    }
+
+    spdy_send_syn_reply(stream, kvblock);
+
+    body = TSFetchRespGet(txn, &len);
+    if (body) {
+        debug_http("body %p is %d bytes", body, len);
+        spdy_send_data_frame(stream, body, len);
+    }
+}
+
+static void
+print_ts_http_header(
+        unsigned    stream_id,
+        TSMBuffer   buffer,
+        TSMLoc      header)
 {
     spdy_io_control::buffered_stream iobuf;
     int64_t nbytes;
@@ -242,8 +304,8 @@ print_ts_http_header(TSMBuffer buffer, TSMLoc header)
     avail = TSIOBufferBlockReadAvail(blk, iobuf.reader);
     ptr = (const char *)TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
 
-    debug_http("http request (%zu of %zu bytes):\n%*.*s",
-            nbytes, avail, (int)nbytes, (int)nbytes, ptr);
+    debug_http("[%u] http request (%zu of %zu bytes):\n%*.*s",
+            stream_id, nbytes, avail, (int)nbytes, (int)nbytes, ptr);
 }
 
 static void
@@ -279,7 +341,6 @@ make_ts_http_request(
         TSMBuffer buffer,
         const spdy::key_value_block& kvblock)
 {
-
     scoped_http_header header(buffer);
 
     TSHttpHdrTypeSet(buffer, header, TS_HTTP_TYPE_REQUEST);

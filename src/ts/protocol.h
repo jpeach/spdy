@@ -14,29 +14,25 @@
  * limitations under the License.
  */
 
-#include <ts/ts.h>
-#include <spdy/spdy.h>
-#include "io.h"
-
-spdy_io_control::spdy_io_control(TSVConn v) : vconn(v)
-{
-}
-
-spdy_io_control::~spdy_io_control()
-{
-    TSVConnClose(vconn);
-}
+#ifndef PROTOCOL_H_46E29A3D_9EE6_4C4F_A355_FF42DE19EF18
+#define PROTOCOL_H_46E29A3D_9EE6_4C4F_A355_FF42DE19EF18
 
 void
-spdy_io_control::reenable()
-{
+spdy_send_reset_stream(
+        spdy_io_control *   io,
+        unsigned            stream_id,
+        spdy::error         status);
 
-    TSVIO vio = TSVConnWriteVIOGet(this->vconn);
-    TSMutex mutex = TSVIOMutexGet(vio);
+void
+spdy_send_syn_reply(
+        spdy_io_stream * stream,
+        const spdy::key_value_block& kvblock);
 
-    TSMutexLock(mutex);
-    TSVIOReenable(vio);
-    TSMutexUnlock(mutex);
-}
+void
+spdy_send_data_frame(
+        spdy_io_stream *    stream,
+        void *              ptr,
+        size_t              nbytes);
 
+#endif /* PROTOCOL_H_46E29A3D_9EE6_4C4F_A355_FF42DE19EF18 */
 /* vim: set sw=4 ts=4 tw=79 et : */

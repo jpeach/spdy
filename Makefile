@@ -31,6 +31,7 @@ LinkProgram = $(CXX) -o $@ $^
 
 Spdy_Objects := \
 	src/ts/io.o \
+	src/ts/protocol.o \
 	src/ts/spdy.o \
 	src/ts/stream.o \
 	src/ts/strings.o

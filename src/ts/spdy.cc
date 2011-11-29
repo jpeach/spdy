@@ -24,36 +24,6 @@
 static int spdy_vconn_io(TSCont, TSEvent, void *);
 
 static void
-spdy_reset_stream(
-        spdy_io_control *   io,
-        unsigned            stream_id,
-        spdy::error         status)
-{
-    spdy::message_header hdr;
-    spdy::rst_stream_message rst;
-
-    uint8_t     buffer[spdy::message_header::size + spdy::message_header::size];
-    uint8_t *   ptr = buffer;
-    size_t      nbytes = 0;
-
-    hdr.is_control = true;
-    hdr.control.version = spdy::PROTOCOL_VERSION;
-    hdr.control.type = spdy::CONTROL_RST_STREAM;
-    hdr.flags = 0;
-    hdr.datalen = spdy::rst_stream_message::size;
-    rst.stream_id = stream_id;
-    rst.status_code = status;
-
-    nbytes += spdy::message_header::marshall(hdr, ptr, sizeof(buffer));
-    nbytes += spdy::rst_stream_message::marshall(rst, ptr, sizeof(buffer) - nbytes);
-
-    debug_protocol("resetting stream %u with error %s",
-            stream_id, cstringof(status));
-    TSIOBufferWrite(io->output.buffer, buffer, nbytes);
-    TSIOBufferProduce(io->output.buffer, nbytes);
-}
-
-static void
 spdy_syn_stream(
         const spdy::message_header& header,
         spdy_io_control *           io,
@@ -67,9 +37,17 @@ spdy_syn_stream(
         // XXX send a PROTOCOL_ERROR
     }
 
+    switch (header.control.version) {
+    case spdy::PROTOCOL_VERSION_2: // fallthru
+    case spdy::PROTOCOL_VERSION_3: break;
+    default:
+        // XXX send a PROTOCOL_ERROR
+        ;
+    }
+
     stream = io->create_stream(syn.stream_id);
     stream->kvblock = spdy::key_value_block::parse(
-                header.control.version,
+                (spdy::protocol_version)header.control.version,
                 io->decompressor,
                 ptr + spdy::syn_stream_message::size,
                 header.datalen - spdy::syn_stream_message::size);
@@ -78,13 +56,15 @@ spdy_syn_stream(
             cstringof(header.control.type), syn.stream_id,
             syn.associated_id, syn.priority, stream->kvblock.size());
 
+    stream->io = io;
+    stream->version = (spdy::protocol_version)header.control.version;
+
     if (!stream->kvblock.url().is_complete()) {
         // XXX missing URL, protocol error
         // 3.2.1 400 Bad Request
     }
 
     stream->start();
-    spdy_reset_stream(io, syn.stream_id, spdy::REFUSED_STREAM);
 }
 
 static void
@@ -174,10 +154,15 @@ next_frame:
 static int
 spdy_vconn_io(TSCont contp, TSEvent ev, void * edata)
 {
-    int     nbytes;
-    spdy_io_control * io;
+    TSVIO               vio = (TSVIO)edata;
+    int                 nbytes;
+    spdy_io_control *   io;
 
-    debug_plugin("received IO event %s, data=%p", cstringof(ev), edata);
+    (void)vio;
+
+    // Experimentally, we recieve the read or write TSVIO pointer as the
+    // callback data.
+    //debug_plugin("received IO event %s, VIO=%p", cstringof(ev), vio);
 
     switch (ev) {
     case TS_EVENT_VCONN_READ_READY:
@@ -195,11 +180,14 @@ spdy_vconn_io(TSCont contp, TSEvent ev, void * edata)
         break;
     case TS_EVENT_VCONN_WRITE_READY:
     case TS_EVENT_VCONN_WRITE_COMPLETE:
+        debug_plugin("write event %s %lld bytes", cstringof(ev), TSVIONBytesGet(vio));
         break;
     case TS_EVENT_VCONN_EOS: // fallthru
     default:
+        if (ev != TS_EVENT_VCONN_EOS) {
+            debug_plugin("unexpected accept event %s", cstringof(ev));
+        }
         io = spdy_io_control::get(contp);
-        debug_plugin("unexpected accept event %s", cstringof(ev));
         TSVConnClose(io->vconn);
         delete io;
     }
@@ -213,6 +201,8 @@ spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
     TSVConn vconn;
     spdy_io_control * io;
 
+    TSVIO read_vio, write_vio;
+
     switch (ev) {
     case TS_EVENT_NET_ACCEPT:
         debug_protocol("setting up SPDY session on new connection");
@@ -223,8 +213,8 @@ spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
         // XXX is contp leaked here?
         contp = TSContCreate(spdy_vconn_io, TSMutexCreate());
         TSContDataSet(contp, io);
-        TSVConnRead(vconn, contp, io->input.buffer, INT64_MAX);
-        TSVConnWrite(vconn, contp, io->output.reader, INT64_MAX);
+        read_vio = TSVConnRead(vconn, contp, io->input.buffer, INT64_MAX);
+        write_vio = TSVConnWrite(vconn, contp, io->output.reader, INT64_MAX);
         break;
     default:
         debug_plugin("unexpected accept event %s", cstringof(ev));

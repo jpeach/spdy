@@ -24,7 +24,7 @@ namespace spdy {
 
 enum zstream_error
 {
-    z_ok,
+    z_ok = 0,
     z_stream_end,
     z_need_dict,
     z_errno,
@@ -46,20 +46,33 @@ struct zstream : public ZlibMechanism
         ZlibMechanism::init(&stream);
     }
 
+    bool drained() const {
+        return stream.avail_in == 0;
+    }
+
     template <typename T, typename N>
     void input(T * ptr, N nbytes) {
         stream.next_in = (uint8_t *)ptr;
         stream.avail_in = nbytes;
     }
 
+    // Consume the input without producing any output.
+    zstream_error consume() {
+        zstream_error ret;
+        stream.next_out = (uint8_t *)1;
+        stream.avail_out = 0;
+        ret = ZlibMechanism::transact(&stream, 0);
+        return (ret == z_buffer_error) ? z_ok : ret;
+    }
+
     // Return the number of output bytes or negative zstream_error on failure.
     template <typename T, typename N>
-    ssize_t consume(T * ptr, N nbytes) {
-        int ret;
+    ssize_t consume(T * ptr, N nbytes, unsigned flags = Z_SYNC_FLUSH) {
+        zstream_error ret;
         stream.next_out = (uint8_t *)ptr;
         stream.avail_out = nbytes;
 
-        ret = ZlibMechanism::transact(&stream, Z_SYNC_FLUSH);
+        ret = ZlibMechanism::transact(&stream, flags);
         if (ret == z_buffer_error) {
             return 0;
         }
