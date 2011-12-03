@@ -28,7 +28,7 @@ namespace spdy {
 
     enum : unsigned {
         FLAG_FIN            = 1,
-        FLAG_COMPRESS       = 2
+        FLAG_COMPRESSED     = 2
    };
 
     struct protocol_error : public std::runtime_error {

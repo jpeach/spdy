@@ -107,17 +107,33 @@ spdy_send_data_frame(
 {
     spdy::message_header hdr;
     uint8_t     buffer[spdy::message_header::size];
+    std::vector<uint8_t> tmp;
+    ssize_t     ret;
 
     TSReleaseAssert(nbytes < spdy::MAX_FRAME_LENGTH);
 
+    tmp.resize(nbytes + 64);
+    stream->io->compressor.input(ptr, nbytes);
+    nbytes = 0;
+
+    do {
+        ret = stream->io->compressor.consume(&tmp[nbytes], tmp.size() - nbytes);
+        if (ret > 0) {
+            nbytes += ret;
+        }
+    } while (ret > 0);
+
+    tmp.resize(nbytes);
+
     hdr.is_control = false;
-    hdr.flags = spdy::FLAG_FIN;
+    hdr.flags = spdy::FLAG_FIN | spdy::FLAG_COMPRESSED;
     hdr.datalen = nbytes;
     hdr.data.stream_id = stream->stream_id;
 
     spdy::message_header::marshall(hdr, buffer, sizeof(buffer));
     TSIOBufferWrite(stream->io->output.buffer, buffer, spdy::message_header::size);
-    TSIOBufferWrite(stream->io->output.buffer, ptr, nbytes);
+    //TSIOBufferWrite(stream->io->output.buffer, ptr, nbytes);
+    TSIOBufferWrite(stream->io->output.buffer, &tmp[0], nbytes);
 }
 
 /* vim: set sw=4 tw=79 ts=4 et ai : */
