@@ -232,6 +232,31 @@ send_http_txn_error(
 }
 
 static void
+populate_http_headers(
+        TSMBuffer   buffer,
+        TSMLoc      header,
+        spdy::protocol_version version,
+        spdy::key_value_block& kvblock)
+{
+    char status[sizeof("4294967295")];
+    char httpvers[sizeof("HTTP/xx.xx")];
+    int vers = TSHttpHdrVersionGet(buffer, header);
+
+    snprintf(status, sizeof(status),
+            "%u", (unsigned)TSHttpHdrStatusGet(buffer, header));
+    snprintf(httpvers, sizeof(httpvers),
+            "HTTP/%u.%u", TS_HTTP_MAJOR(vers), TS_HTTP_MINOR(vers));
+
+    if (version == spdy::PROTOCOL_VERSION_2) {
+        kvblock["status"] = status;
+        kvblock["version"] = httpvers;
+    } else {
+        kvblock[":status"] = status;
+        kvblock[":version"] = httpvers;
+    }
+}
+
+static void
 send_http_txn_result(
         spdy_io_stream  *   stream,
         TSHttpTxn           txn)
@@ -277,6 +302,8 @@ skip:
        TSHandleMLocRelease(buffer, header, field);
        field = next;
     }
+
+    populate_http_headers(buffer, header, stream->version, kvblock);
 
     spdy_send_syn_reply(stream, kvblock);
 
