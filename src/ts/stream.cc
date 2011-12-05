@@ -177,52 +177,6 @@ initiate_client_request(
     return true;
 }
 
-static int
-spdy_session_io(TSCont contp, TSEvent ev, void * edata)
-{
-    TSHostLookupResult dns = (TSHostLookupResult)edata;
-    spdy_io_stream * stream = spdy_io_stream::get(contp);
-
-    switch (ev) {
-    case TS_EVENT_HOST_LOOKUP:
-        if (dns) {
-            inet_address addr(TSHostLookupResultAddrGet(dns));
-            debug_http("[%u] resolved %s => %s", stream->stream_id,
-                    stream->kvblock.url().hostport.c_str(), cstringof(addr));
-            addr.port() = htons(80); // XXX should be parsed from hostport
-            initiate_client_request(stream, addr.saddr(), contp);
-        } else {
-            // XXX
-            // Experimentally, if the DNS lookup fails, web proxies return 502
-            // Bad Gateway. We should cobble up a HTTP response to tunnel back
-            // in a SYN_REPLY.
-        }
-
-        stream->action = NULL;
-        break;
-
-    case SPDY_EVENT_HTTP_SUCCESS:
-        send_http_txn_result(stream, (TSHttpTxn)edata);
-        stream->io->reenable();
-        break;
-
-    case SPDY_EVENT_HTTP_FAILURE:
-        debug_http("[%u] HTTP failure event", stream->stream_id);
-        send_http_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
-        break;
-
-    case SPDY_EVENT_HTTP_TIMEOUT:
-        debug_http("[%u] HTTP timeout event", stream->stream_id);
-        send_http_txn_error(stream, TS_HTTP_STATUS_GATEWAY_TIMEOUT);
-        break;
-
-    default:
-        debug_plugin("unexpected accept event %s", cstringof(ev));
-    }
-
-    return TS_EVENT_NONE;
-}
-
 static void
 send_http_txn_error(
         spdy_io_stream  *   stream,
@@ -239,11 +193,13 @@ populate_http_headers(
         spdy::key_value_block& kvblock)
 {
     char status[sizeof("4294967295")];
-    char httpvers[sizeof("HTTP/xx.xx")];
+    char httpvers[sizeof("HTTP/xx.xx") + 64];
+
     int vers = TSHttpHdrVersionGet(buffer, header);
+    TSHttpStatus code = TSHttpHdrStatusGet(buffer, header);
 
     snprintf(status, sizeof(status),
-            "%u", (unsigned)TSHttpHdrStatusGet(buffer, header));
+            "%u %s", (unsigned)code, TSHttpHdrReasonLookup(code));
     snprintf(httpvers, sizeof(httpvers),
             "HTTP/%u.%u", TS_HTTP_MAJOR(vers), TS_HTTP_MINOR(vers));
 
@@ -310,8 +266,11 @@ skip:
     body = TSFetchRespGet(txn, &len);
     if (body) {
         debug_http("body %p is %d bytes", body, len);
-        spdy_send_data_frame(stream, body, len);
+        spdy_send_data_frame(
+                stream, 0 /*| spdy::FLAG_COMPRESSED*/, body, len);
     }
+
+    spdy_send_data_frame(stream, spdy::FLAG_FIN, NULL, 0);
 }
 
 static void
@@ -396,6 +355,53 @@ make_ts_http_request(
     return header.release();
 }
 
+static int
+spdy_session_io(TSCont contp, TSEvent ev, void * edata)
+{
+    TSHostLookupResult dns = (TSHostLookupResult)edata;
+    spdy_io_stream * stream = spdy_io_stream::get(contp);
+
+    switch (ev) {
+    case TS_EVENT_HOST_LOOKUP:
+        stream->action = NULL;
+
+        if (dns) {
+            inet_address addr(TSHostLookupResultAddrGet(dns));
+            debug_http("[%u] resolved %s => %s", stream->stream_id,
+                    stream->kvblock.url().hostport.c_str(), cstringof(addr));
+            addr.port() = htons(80); // XXX should be parsed from hostport
+            initiate_client_request(stream, addr.saddr(), contp);
+        } else {
+            // Experimentally, if the DNS lookup fails, web proxies return 502
+            // Bad Gateway. We should cobble up a HTTP response to tunnel back
+            // in a SYN_REPLY.
+            send_http_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
+        }
+
+        break;
+
+    case SPDY_EVENT_HTTP_SUCCESS:
+        send_http_txn_result(stream, (TSHttpTxn)edata);
+        stream->io->reenable();
+        break;
+
+    case SPDY_EVENT_HTTP_FAILURE:
+        debug_http("[%u] HTTP failure event", stream->stream_id);
+        send_http_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
+        break;
+
+    case SPDY_EVENT_HTTP_TIMEOUT:
+        debug_http("[%u] HTTP timeout event", stream->stream_id);
+        send_http_txn_error(stream, TS_HTTP_STATUS_GATEWAY_TIMEOUT);
+        break;
+
+    default:
+        debug_plugin("unexpected accept event %s", cstringof(ev));
+    }
+
+    return TS_EVENT_NONE;
+}
+
 spdy_io_stream::spdy_io_stream(unsigned s)
     : stream_id(s), action(NULL), kvblock()
 {
@@ -403,9 +409,11 @@ spdy_io_stream::spdy_io_stream(unsigned s)
 
 spdy_io_stream::~spdy_io_stream()
 {
+#if 0
     if (action) {
         TSActionCancel(action);
     }
+#endif
 }
 
 void

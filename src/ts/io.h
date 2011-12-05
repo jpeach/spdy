@@ -82,6 +82,14 @@ struct spdy_io_control
         return streams[stream_id] = new spdy_io_stream(stream_id);
     }
 
+    void destroy_stream(unsigned stream_id) {
+        stream_map_type::iterator ptr(streams.find(stream_id));
+        if (ptr != streams.end()) {
+            delete ptr->second;
+            streams.erase(ptr);
+        }
+    }
+
     typedef std::map<unsigned, spdy_io_stream *> stream_map_type;
 
     TSVConn             vconn;

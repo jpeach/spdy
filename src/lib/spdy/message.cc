@@ -95,7 +95,7 @@ spdy::message_header::marshall(
     }
 
     if (msg.is_control) {
-        insert<uint16_t>(htons(0x8000u | spdy::PROTOCOL_VERSION), ptr);
+        insert<uint16_t>(htons(0x8000u | msg.control.version), ptr);
         insert<uint16_t>(htons(msg.control.type), ptr);
         insert<uint32_t>(htonl((msg.flags << 24) | (msg.datalen & 0x00ffffffu)), ptr);
     } else {
@@ -275,7 +275,7 @@ marshall_name_value_pairs_v2(
     compressor.input(&tmp16, sizeof(tmp16));
     status = compressor.consume(ptr + nbytes, len - nbytes, 0);
     if (status < 0) {
-        return 0; // XXX
+        return status;
     }
 
     nbytes += status;
@@ -284,7 +284,7 @@ marshall_name_value_pairs_v2(
         status = marshall_string_v2(
                 compressor, kv->first, ptr + nbytes, len - nbytes, 0);
         if (status < 0) {
-            return 0; // XXX
+            return status;
         }
 
         nbytes += status;
@@ -292,18 +292,20 @@ marshall_name_value_pairs_v2(
         status = marshall_string_v2(
                 compressor, kv->second, ptr + nbytes, len - nbytes, 0);
         if (status < 0) {
-            return 0; // XXX
+            return status;
         }
 
         nbytes += status;
     }
 
-    status = compressor.consume(ptr + nbytes, len - nbytes);
-    if (status < 0) {
-        return 0; // XXX
-    }
+    do  {
+        status = compressor.consume(ptr + nbytes, len - nbytes, Z_SYNC_FLUSH);
+        if (status < 0) {
+            return status;
+        }
+        nbytes += status;
+    } while (status != 0);
 
-    nbytes += status;
     return nbytes;
 }
 
@@ -321,7 +323,6 @@ parse_name_value_pairs_v2(
         // XXX throw
     }
 
-    // XXX 16 bits in SPDYv2, but 32bits in SPDYv3
     npairs = ntohs(extract<int16_t>(ptr));
     if (npairs < 1) {
         //

@@ -89,7 +89,14 @@ zstream_error decompress::destroy(z_stream * zstr)
 
 zstream_error compress::init(z_stream * zstr)
 {
-    return map_zerror(deflateInit(zstr, Z_DEFAULT_COMPRESSION));
+    zstream_error status;
+
+    status = map_zerror(deflateInit(zstr, Z_DEFAULT_COMPRESSION));
+    if (status != z_ok) {
+        return status;
+    }
+
+    return map_zerror(deflateSetDictionary(zstr, dictionary, sizeof(dictionary)));
 }
 
 zstream_error compress::transact(z_stream * zstr, int flush)

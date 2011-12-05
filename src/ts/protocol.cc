@@ -77,7 +77,6 @@ spdy_send_syn_reply(
     nbytes = spdy::key_value_block::marshall(stream->version,
             stream->io->compressor, kvblock, &hdrs[0], hdrs.capacity());
     hdrs.resize(nbytes);
-    debug_protocol("hdrs.size()=%zu", hdrs.size());
 
     msg.hdr.is_control = true;
     msg.hdr.control.version = stream->version;
@@ -86,54 +85,66 @@ spdy_send_syn_reply(
     msg.hdr.datalen = spdy::syn_reply_message::size(stream->version) + hdrs.size();
     nbytes = TSIOBufferWrite(stream->io->output.buffer, buffer,
             spdy::message_header::marshall(msg.hdr, buffer, sizeof(buffer)));
-    debug_protocol("nbytes=%u", (unsigned)nbytes);
 
     msg.syn.stream_id = stream->stream_id;
     nbytes += TSIOBufferWrite(stream->io->output.buffer, buffer,
             spdy::syn_reply_message::marshall(stream->version,
                         msg.syn, buffer, sizeof(buffer)));
-    debug_protocol("nbytes=%u", (unsigned)nbytes);
 
     nbytes += TSIOBufferWrite(stream->io->output.buffer, &hdrs[0], hdrs.size());
-    debug_protocol("hdr.datalen=%u nbytes=%u",
-            (unsigned)msg.hdr.datalen, (unsigned)nbytes);
+    debug_protocol("%s hdr.datalen=%u",
+           cstringof(spdy::CONTROL_SYN_REPLY), (unsigned)msg.hdr.datalen);
 }
 
 void
 spdy_send_data_frame(
         spdy_io_stream *    stream,
-        void *              ptr,
+        unsigned            flags,
+        const void *        ptr,
         size_t              nbytes)
 {
-    spdy::message_header hdr;
-    uint8_t     buffer[spdy::message_header::size];
-    std::vector<uint8_t> tmp;
-    ssize_t     ret;
+    spdy::message_header    hdr;
+    uint8_t                 buffer[spdy::message_header::size];
+    std::vector<uint8_t>    tmp;
+    ssize_t                 ret;
 
     TSReleaseAssert(nbytes < spdy::MAX_FRAME_LENGTH);
 
-    tmp.resize(nbytes + 64);
-    stream->io->compressor.input(ptr, nbytes);
-    nbytes = 0;
+    // XXX If we are compressing the data, we need to make a temporary copy.
+    // When there is an ATS API that will let us rewrite the header, then we
+    // can marshall straight into the TSIOBiffer.
+    if (flags & spdy::FLAG_COMPRESSED) {
+        tmp.resize(nbytes + 64);
+        stream->io->compressor.input(ptr, nbytes);
+        nbytes = 0;
 
-    do {
-        ret = stream->io->compressor.consume(&tmp[nbytes], tmp.size() - nbytes);
-        if (ret > 0) {
-            nbytes += ret;
-        }
-    } while (ret > 0);
+        do {
+            ret = stream->io->compressor.consume(&tmp[nbytes], tmp.size() - nbytes);
+            if (ret > 0) {
+                nbytes += ret;
+            }
+        } while (ret > 0);
 
-    tmp.resize(nbytes);
+        tmp.resize(nbytes);
+    }
 
     hdr.is_control = false;
-    hdr.flags = spdy::FLAG_FIN | spdy::FLAG_COMPRESSED;
+    hdr.flags = flags;
     hdr.datalen = nbytes;
     hdr.data.stream_id = stream->stream_id;
 
     spdy::message_header::marshall(hdr, buffer, sizeof(buffer));
     TSIOBufferWrite(stream->io->output.buffer, buffer, spdy::message_header::size);
-    //TSIOBufferWrite(stream->io->output.buffer, ptr, nbytes);
-    TSIOBufferWrite(stream->io->output.buffer, &tmp[0], nbytes);
+
+    if (nbytes) {
+        if (flags & spdy::FLAG_COMPRESSED) {
+            TSIOBufferWrite(stream->io->output.buffer, &tmp[0], nbytes);
+        } else {
+            TSIOBufferWrite(stream->io->output.buffer, ptr, nbytes);
+        }
+    }
+
+    debug_protocol("DATA flags=%x hdr.datalen=%u", flags, (unsigned)hdr.datalen);
 }
 
 /* vim: set sw=4 tw=79 ts=4 et ai : */

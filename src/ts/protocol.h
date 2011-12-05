@@ -31,7 +31,8 @@ spdy_send_syn_reply(
 void
 spdy_send_data_frame(
         spdy_io_stream *    stream,
-        void *              ptr,
+        unsigned            flags,
+        const void *        ptr,
         size_t              nbytes);
 
 #endif /* PROTOCOL_H_46E29A3D_9EE6_4C4F_A355_FF42DE19EF18 */

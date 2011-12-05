@@ -24,6 +24,22 @@
 static int spdy_vconn_io(TSCont, TSEvent, void *);
 
 static void
+spdy_rst_stream(
+        const spdy::message_header& header,
+        spdy_io_control *           io,
+        const uint8_t __restrict *  ptr)
+{
+    spdy::rst_stream_message rst;
+
+    rst = spdy::rst_stream_message::parse(ptr, header.datalen);
+
+    debug_protocol("%s frame stream=%u status_code=%u",
+            cstringof(header.control.type), rst.stream_id, rst.status_code);
+
+    io->destroy_stream(rst.stream_id);
+}
+
+static void
 spdy_syn_stream(
         const spdy::message_header& header,
         spdy_io_control *           io,
@@ -79,13 +95,16 @@ dispatch_spdy_control_frame(
         break;
     case spdy::CONTROL_SYN_REPLY:
     case spdy::CONTROL_RST_STREAM:
+        spdy_rst_stream(header, io, ptr);
+        break;
     case spdy::CONTROL_SETTINGS:
     case spdy::CONTROL_PING:
     case spdy::CONTROL_GOAWAY:
     case spdy::CONTROL_HEADERS:
     case spdy::CONTROL_WINDOW_UPDATE:
-        debug_protocol("control frame type %s not implemented yet",
-                cstringof(header.control.type));
+        debug_protocol("SPDY control frame, version=%u type=%s flags=0x%x, %zu bytes",
+            header.control.version, cstringof(header.control.type),
+            header.flags, header.datalen);
         break;
     default:
         // SPDY 2.2.1 - MUST ignore unrecognized control frames
@@ -115,10 +134,6 @@ next_frame:
             TSError("[spdy] client is version %u, but we implement version %u",
                 header.control.version, spdy::PROTOCOL_VERSION);
         }
-
-        debug_protocol("SPDY control frame, version=%u type=%s flags=0x%x, %zu bytes",
-            header.control.version, cstringof(header.control.type),
-            header.flags, header.datalen);
     } else {
         debug_protocol("SPDY data frame, stream=%u flags=0x%x, %zu bytes",
             header.data.stream_id, header.flags, header.datalen);
