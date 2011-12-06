@@ -120,6 +120,9 @@ resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
 
     // XXX split the host and port and stash the port in the resulting sockaddr
     stream->action = TSHostLookup(contp, hostname.c_str(), hostname.size());
+    if (TSActionDone(stream->action)) {
+        stream->action = NULL;
+    }
 }
 
 static void
@@ -399,11 +402,9 @@ spdy_io_stream::spdy_io_stream(unsigned s)
 
 spdy_io_stream::~spdy_io_stream()
 {
-#if 0
     if (action) {
         TSActionCancel(action);
     }
-#endif
 }
 
 void
