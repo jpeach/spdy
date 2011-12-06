@@ -122,6 +122,33 @@ resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
     stream->action = TSHostLookup(contp, hostname.c_str(), hostname.size());
 }
 
+static void
+populate_http_headers(
+        TSMBuffer   buffer,
+        TSMLoc      header,
+        spdy::protocol_version version,
+        spdy::key_value_block& kvblock)
+{
+    char status[sizeof("4294967295")];
+    char httpvers[sizeof("HTTP/xx.xx") + 64];
+
+    int vers = TSHttpHdrVersionGet(buffer, header);
+    TSHttpStatus code = TSHttpHdrStatusGet(buffer, header);
+
+    snprintf(status, sizeof(status),
+            "%u %s", (unsigned)code, TSHttpHdrReasonLookup(code));
+    snprintf(httpvers, sizeof(httpvers),
+            "HTTP/%u.%u", TS_HTTP_MAJOR(vers), TS_HTTP_MINOR(vers));
+
+    if (version == spdy::PROTOCOL_VERSION_2) {
+        kvblock["status"] = status;
+        kvblock["version"] = httpvers;
+    } else {
+        kvblock[":status"] = status;
+        kvblock[":version"] = httpvers;
+    }
+}
+
 static bool
 initiate_client_request(
         spdy_io_stream *        stream,
@@ -143,18 +170,8 @@ initiate_client_request(
 
     print_ts_http_header(stream->stream_id, buffer.get(), header);
 
-    // Need the kv:version and kv:method to actually make the request. It looks
-    // like the most straightforward way is to build the HTTP request by hand
-    // and pump it into TSFetchUrl().
-
-    // Apparantly TSFetchUrl may have performance problems,
-    // see https://issues.apache.org/jira/browse/TS-912
-
-    // We probably need to manually do the caching, using
-    // TSCacheRead/TSCacheWrite.
-
     // For POST requests which may contain a lot of data, we probably need to
-    // do a bunch of work. Looks like the recommended path is
+    // do a bunch of work. Looks like the recommended path is:
     //      TSHttpConnect()
     //      TSVConnWrite() to send an HTTP request.
     //      TSVConnRead() to get the HTTP response.
@@ -183,33 +200,6 @@ send_http_txn_error(
         TSHttpStatus        status)
 {
     debug_http("[%u] sending a HTTP %d result", stream->stream_id, status);
-}
-
-static void
-populate_http_headers(
-        TSMBuffer   buffer,
-        TSMLoc      header,
-        spdy::protocol_version version,
-        spdy::key_value_block& kvblock)
-{
-    char status[sizeof("4294967295")];
-    char httpvers[sizeof("HTTP/xx.xx") + 64];
-
-    int vers = TSHttpHdrVersionGet(buffer, header);
-    TSHttpStatus code = TSHttpHdrStatusGet(buffer, header);
-
-    snprintf(status, sizeof(status),
-            "%u %s", (unsigned)code, TSHttpHdrReasonLookup(code));
-    snprintf(httpvers, sizeof(httpvers),
-            "HTTP/%u.%u", TS_HTTP_MAJOR(vers), TS_HTTP_MINOR(vers));
-
-    if (version == spdy::PROTOCOL_VERSION_2) {
-        kvblock["status"] = status;
-        kvblock["version"] = httpvers;
-    } else {
-        kvblock[":status"] = status;
-        kvblock[":version"] = httpvers;
-    }
 }
 
 static void
