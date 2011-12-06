@@ -198,29 +198,13 @@ initiate_client_request(
 }
 
 static void
-send_http_txn_error(
-        spdy_io_stream  *   stream,
-        TSHttpStatus        status)
+send_http_response(
+        spdy_io_stream *    stream,
+        TSMBuffer           buffer,
+        TSMLoc              header)
 {
-    debug_http("[%u] sending a HTTP %d result", stream->stream_id, status);
-}
-
-static void
-send_http_txn_result(
-        spdy_io_stream  *   stream,
-        TSHttpTxn           txn)
-{
-    int         len;
-    char *      body;
-    TSMBuffer   buffer;
-    TSMLoc      header, field;
+    TSMLoc      field;
     spdy::key_value_block kvblock;
-
-    if (TSFetchHdrGet(txn, &buffer, &header) != TS_SUCCESS) {
-        spdy_send_reset_stream(stream->io, stream->stream_id,
-                spdy::PROTOCOL_ERROR);
-        return;
-    }
 
     print_ts_http_header(stream->stream_id, buffer, header);
 
@@ -253,8 +237,44 @@ skip:
     }
 
     populate_http_headers(buffer, header, stream->version, kvblock);
-
     spdy_send_syn_reply(stream, kvblock);
+}
+
+static void
+send_http_txn_error(
+        spdy_io_stream  *   stream,
+        TSHttpStatus        status)
+{
+    scoped_mbuffer      buffer;
+    scoped_http_header  header(buffer.get());
+
+    TSHttpHdrTypeSet(buffer.get(), header.get(), TS_HTTP_TYPE_RESPONSE);
+    TSHttpHdrVersionSet(buffer.get(), header.get(), TS_HTTP_VERSION(1, 1));
+    TSHttpHdrStatusSet(buffer.get(), header.get(), status);
+
+    debug_http("[%u] sending a HTTP %d result", stream->stream_id, status);
+
+    send_http_response(stream, buffer.get(), header.get());
+    spdy_send_data_frame(stream, spdy::FLAG_FIN, nullptr, 0);
+}
+
+static void
+send_http_txn_result(
+        spdy_io_stream  *   stream,
+        TSHttpTxn           txn)
+{
+    int         len;
+    char *      body;
+    TSMBuffer   buffer;
+    TSMLoc      header;
+
+    if (TSFetchHdrGet(txn, &buffer, &header) != TS_SUCCESS) {
+        spdy_send_reset_stream(stream->io, stream->stream_id,
+                spdy::PROTOCOL_ERROR);
+        return;
+    }
+
+    send_http_response(stream, buffer, header);
 
     body = TSFetchRespGet(txn, &len);
     if (body) {
@@ -263,7 +283,7 @@ skip:
                 stream, 0 /*| spdy::FLAG_COMPRESSED*/, body, len);
     }
 
-    spdy_send_data_frame(stream, spdy::FLAG_FIN, NULL, 0);
+    spdy_send_data_frame(stream, spdy::FLAG_FIN, nullptr, 0);
 }
 
 static void
@@ -356,7 +376,7 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
 
     switch (ev) {
     case TS_EVENT_HOST_LOOKUP:
-        stream->action = NULL;
+        stream->action = nullptr;
 
         if (dns) {
             inet_address addr(TSHostLookupResultAddrGet(dns));
@@ -396,7 +416,7 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
 }
 
 spdy_io_stream::spdy_io_stream(unsigned s)
-    : stream_id(s), action(NULL), kvblock()
+    : stream_id(s), action(nullptr), kvblock()
 {
 }
 
