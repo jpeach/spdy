@@ -153,6 +153,22 @@ populate_http_headers(
 }
 
 static bool
+http_method_is_supported(
+        TSMBuffer   buffer,
+        TSMLoc      header)
+{
+    int len;
+    const char * method;
+
+    method = TSHttpHdrMethodGet(buffer, header, &len);
+    if (method && strncmp(method, TS_HTTP_METHOD_GET, len) == 0) {
+        return true;
+    }
+
+    return false;
+}
+
+static bool
 initiate_client_request(
         spdy_io_stream *        stream,
         const struct sockaddr * addr,
@@ -172,6 +188,11 @@ initiate_client_request(
     }
 
     print_ts_http_header(stream->stream_id, buffer.get(), header);
+
+    if (!http_method_is_supported(buffer.get(), header.get())) {
+        send_http_txn_error(stream, TS_HTTP_STATUS_METHOD_NOT_ALLOWED);
+        return true;
+    }
 
     // For POST requests which may contain a lot of data, we probably need to
     // do a bunch of work. Looks like the recommended path is:
