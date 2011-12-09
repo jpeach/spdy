@@ -15,7 +15,7 @@
  */
 
 #include <spdy/spdy.h>
-#include <platform/logging.h>
+#include <base/logging.h>
 
 template<> std::string
 stringof<spdy::control_frame_type>(const spdy::control_frame_type& ev)

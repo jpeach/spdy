@@ -17,7 +17,7 @@
 #include <ts/ts.h>
 #include <stdlib.h>
 #include <spdy/spdy.h>
-#include <platform/logging.h>
+#include <base/logging.h>
 
 #include "io.h"
 

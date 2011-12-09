@@ -42,7 +42,7 @@ LibSpdy_Objects := \
 	src/lib/spdy/zstream.o
 
 LibPlatform_Objects := \
-	src/lib/platform/logging.o
+	src/lib/base/logging.o
 
 Zlib_Test_Objects := \
 	src/test/stubs.o \

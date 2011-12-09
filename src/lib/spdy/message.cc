@@ -5,7 +5,7 @@
 
 #include "spdy.h"
 #include "zstream.h"
-#include <platform/logging.h>
+#include <base/logging.h>
 
 #include <stdexcept>
 #include <vector>
