@@ -117,6 +117,7 @@ resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
 
     contp = TSContCreate(spdy_session_io, TSMutexCreate());
     TSContDataSet(contp, stream);
+    retain(stream);
 
     // XXX split the host and port and stash the port in the resulting sockaddr
     stream->action = TSHostLookup(contp, hostname.c_str(), hostname.size());
@@ -215,6 +216,7 @@ initiate_client_request(
     // complete with a dangling stream pointer. Need to figure out how we can
     // cancel this.
     TSFetchUrl(ptr, nbytes, addr, contp, AFTER_BODY, events);
+    retain(stream);
     return true;
 }
 
@@ -433,6 +435,7 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
         debug_plugin("unexpected accept event %s", cstringof(ev));
     }
 
+    release(stream);
     return TS_EVENT_NONE;
 }
 

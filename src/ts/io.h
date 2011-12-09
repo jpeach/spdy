@@ -17,13 +17,15 @@
 #ifndef IO_H_C3455D48_1D3C_49C0_BB81_844F4C7946A5
 #define IO_H_C3455D48_1D3C_49C0_BB81_844F4C7946A5
 
+#include <base/atomic.h>
+
 struct spdy_io_stream;
 struct spdy_io_control;
 
-struct spdy_io_stream
+struct spdy_io_stream : public countable
 {
     explicit spdy_io_stream(unsigned);
-    ~spdy_io_stream();
+    virtual ~spdy_io_stream();
 
     void start();
 
@@ -78,14 +80,16 @@ struct spdy_io_control
     }
 
     spdy_io_stream * create_stream(unsigned stream_id) {
+        spdy_io_stream * stream = retain(new spdy_io_stream(stream_id));
         last_stream_id = stream_id;
-        return streams[stream_id] = new spdy_io_stream(stream_id);
+        streams[stream_id] = stream;
+        return stream;
     }
 
     void destroy_stream(unsigned stream_id) {
         stream_map_type::iterator ptr(streams.find(stream_id));
         if (ptr != streams.end()) {
-            delete ptr->second;
+            release(ptr->second);
             streams.erase(ptr);
         }
     }

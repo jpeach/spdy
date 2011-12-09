@@ -25,6 +25,10 @@ spdy_io_control::spdy_io_control(TSVConn v) : vconn(v)
 spdy_io_control::~spdy_io_control()
 {
     TSVConnClose(vconn);
+
+    for (auto ptr(streams.begin()); ptr != streams.end(); ++ptr) {
+        release(ptr->second);
+    }
 }
 
 void
