@@ -12,22 +12,21 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-TS := /opt/trafficserver
-TSXS := $(TS)/bin/tsxs
+TSROOT := /opt/trafficserver
+TSXS := $(TSROOT)/bin/tsxs
 SUDO := sudo
 
 CXX := clang++
-
-# Don't use libc++ yet; there's weird unexpected linker problems
-# CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
-CXXFLAGS := -std=c++0x -g -Wall -Wextra
+CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
+LDFLAGS := -stdlib=libc++ -g
 
 CPPFLAGS := \
 	-I/opt/trafficserver/include \
 	-Isrc/lib
 
-LinkBundle = $(CXX) -bundle -Wl,-bundle_loader,$(TS)/bin/traffic_server -o $@ $^
-LinkProgram = $(CXX) -o $@ $^
+LinkBundle = $(CXX) $(LDFLAGS) \
+	     -bundle -Wl,-bundle_loader,$(TSROOT)/bin/traffic_server -o $@ $^
+LinkProgram = $(CXX) $(LDFLAGS) -o $@ $^
 
 Spdy_Objects := \
 	src/ts/io.o \
@@ -60,7 +59,7 @@ all: $(TARGETS)
 
 install: spdy.so
 	$(SUDO) $(TSXS) -i -o $<
-#$(SUDO) $(TS)/bin/trafficserver restart
+#$(SUDO) $(TSROOT)/bin/trafficserver restart
 
 spdy.so: $(Spdy_Objects) $(LibSpdy_Objects) $(LibPlatform_Objects)
 	$(LinkBundle) -lz
