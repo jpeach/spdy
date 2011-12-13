@@ -34,8 +34,9 @@ spdy_rst_stream(
 
     rst = spdy::rst_stream_message::parse(ptr, header.datalen);
 
-    debug_protocol("%s frame stream=%u status_code=%u",
-            cstringof(header.control.type), rst.stream_id, rst.status_code);
+    debug_protocol("received %s frame stream=%u status_code=%s (%u)",
+            cstringof(header.control.type), rst.stream_id,
+            cstringof((spdy::error)rst.status_code), rst.status_code);
 
     io->destroy_stream(rst.stream_id);
 }
@@ -48,6 +49,10 @@ spdy_syn_stream(
 {
     spdy::syn_stream_message    syn;
     spdy_io_stream *            stream;
+
+    debug_protocol("received %s frame stream=%u associated=%u priority=%u headers=%zu",
+            cstringof(header.control.type), syn.stream_id,
+            syn.associated_id, syn.priority, kvblock.size());
 
     syn = spdy::syn_stream_message::parse(ptr, header.datalen);
     if (!io->valid_client_stream_id(syn.stream_id)) {
@@ -72,10 +77,6 @@ spdy_syn_stream(
                     ptr + spdy::syn_stream_message::size,
                     header.datalen - spdy::syn_stream_message::size)
     );
-
-    debug_protocol("%s frame stream=%u associated=%u priority=%u headers=%zu",
-            cstringof(header.control.type), syn.stream_id,
-            syn.associated_id, syn.priority, kvblock.size());
 
     if (!kvblock.url().is_complete()) {
         debug_protocol("incomplete URL");
