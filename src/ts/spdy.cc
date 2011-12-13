@@ -20,6 +20,7 @@
 #include <base/logging.h>
 
 #include "io.h"
+#include "protocol.h"
 
 static int spdy_vconn_io(TSCont, TSEvent, void *);
 
@@ -50,37 +51,47 @@ spdy_syn_stream(
 
     syn = spdy::syn_stream_message::parse(ptr, header.datalen);
     if (!io->valid_client_stream_id(syn.stream_id)) {
-        // XXX send a PROTOCOL_ERROR
+        debug_protocol("invalid stream-id %u", syn.stream_id);
+        spdy_send_reset_stream(io, syn.stream_id, spdy::PROTOCOL_ERROR);
+        return;
     }
 
     switch (header.control.version) {
     case spdy::PROTOCOL_VERSION_2: // fallthru
     case spdy::PROTOCOL_VERSION_3: break;
     default:
-        // XXX send a PROTOCOL_ERROR
-        ;
+        debug_protocol("bad protocol version %d", header.control.version);
+        spdy_send_reset_stream(io, syn.stream_id, spdy::PROTOCOL_ERROR);
+        return;
     }
 
-    stream = io->create_stream(syn.stream_id);
-    stream->kvblock = spdy::key_value_block::parse(
-                (spdy::protocol_version)header.control.version,
-                io->decompressor,
-                ptr + spdy::syn_stream_message::size,
-                header.datalen - spdy::syn_stream_message::size);
+    spdy::key_value_block kvblock(
+            spdy::key_value_block::parse(
+                    (spdy::protocol_version)header.control.version,
+                    io->decompressor,
+                    ptr + spdy::syn_stream_message::size,
+                    header.datalen - spdy::syn_stream_message::size)
+    );
 
     debug_protocol("%s frame stream=%u associated=%u priority=%u headers=%zu",
             cstringof(header.control.type), syn.stream_id,
-            syn.associated_id, syn.priority, stream->kvblock.size());
+            syn.associated_id, syn.priority, kvblock.size());
 
-    stream->io = io;
-    stream->version = (spdy::protocol_version)header.control.version;
-
-    if (!stream->kvblock.url().is_complete()) {
+    if (!kvblock.url().is_complete()) {
+        debug_protocol("incomplete URL");
         // XXX missing URL, protocol error
         // 3.2.1 400 Bad Request
     }
 
-    stream->start();
+    if ((stream = io->create_stream(syn.stream_id)) == 0) {
+        debug_protocol("failed to create stream %u", syn.stream_id);
+        spdy_send_reset_stream(io, syn.stream_id, spdy::INVALID_STREAM);
+        return;
+    }
+
+    stream->io = io;
+    stream->version = (spdy::protocol_version)header.control.version;
+    stream->open(kvblock);
 }
 
 static void
@@ -110,6 +121,8 @@ dispatch_spdy_control_frame(
         // SPDY 2.2.1 - MUST ignore unrecognized control frames
         TSError("ignoring invalid control frame type %u", header.control.type);
     }
+
+    io->reenable();
 }
 
 static void
@@ -183,7 +196,6 @@ spdy_vconn_io(TSCont contp, TSEvent ev, void * edata)
     case TS_EVENT_VCONN_READ_READY:
     case TS_EVENT_VCONN_READ_COMPLETE:
         io = spdy_io_control::get(contp);
-        // what is edata at this point?
         nbytes = TSIOBufferReaderAvail(io->input.reader);
         debug_plugin("received %d bytes", nbytes);
         if ((unsigned)nbytes >= spdy::message_header::size) {
@@ -195,7 +207,8 @@ spdy_vconn_io(TSCont contp, TSEvent ev, void * edata)
         break;
     case TS_EVENT_VCONN_WRITE_READY:
     case TS_EVENT_VCONN_WRITE_COMPLETE:
-        debug_plugin("write event %s %lld bytes", cstringof(ev), TSVIONBytesGet(vio));
+        // No need to handle write events. We have already pushed all the data
+        // we have into the write buffer.
         break;
     case TS_EVENT_VCONN_EOS: // fallthru
     default:
@@ -220,7 +233,7 @@ spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
 
     switch (ev) {
     case TS_EVENT_NET_ACCEPT:
-        debug_protocol("setting up SPDY session on new connection");
+        debug_protocol("accepting new SPDY session");
         vconn = (TSVConn)edata;
         io = new spdy_io_control(vconn);
         io->input.watermark(spdy::message_header::size);

@@ -24,12 +24,23 @@ struct spdy_io_control;
 
 struct spdy_io_stream : public countable
 {
+    enum stream_state : unsigned {
+        inactive_state, open_state, closed_state
+    };
+
     explicit spdy_io_stream(unsigned);
     virtual ~spdy_io_stream();
 
-    void start();
+    // Move kv into the stream and start processing it. Return true if the
+    // stream transitions to open state.
+    bool open(spdy::key_value_block& kv);
+    void close();
+
+    bool is_closed() const  { return state == closed_state; }
+    bool is_open() const  { return state == open_state; }
 
     unsigned                stream_id;
+    stream_state            state;
     spdy::protocol_version  version;
     TSAction                action;
     spdy::key_value_block   kvblock;
@@ -73,26 +84,9 @@ struct spdy_io_control
     // TSVIOReenable() the associated TSVConnection.
     void reenable();
 
-    bool valid_client_stream_id(unsigned stream_id) const {
-        if (stream_id == 0) { return false; } // must not be zero
-        if ((stream_id % 2) == 0) { return false; } // must be odd
-        return stream_id > last_stream_id;
-    }
-
-    spdy_io_stream * create_stream(unsigned stream_id) {
-        spdy_io_stream * stream = retain(new spdy_io_stream(stream_id));
-        last_stream_id = stream_id;
-        streams[stream_id] = stream;
-        return stream;
-    }
-
-    void destroy_stream(unsigned stream_id) {
-        stream_map_type::iterator ptr(streams.find(stream_id));
-        if (ptr != streams.end()) {
-            release(ptr->second);
-            streams.erase(ptr);
-        }
-    }
+    bool                valid_client_stream_id(unsigned stream_id) const;
+    spdy_io_stream *    create_stream(unsigned stream_id);
+    void                destroy_stream(unsigned stream_id);
 
     typedef std::map<unsigned, spdy_io_stream *> stream_map_type;
 

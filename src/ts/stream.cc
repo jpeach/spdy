@@ -25,7 +25,7 @@
 #define SPDY_EVENT_HTTP_FAILURE     90001
 #define SPDY_EVENT_HTTP_TIMEOUT     90002
 
-static int spdy_session_io(TSCont, TSEvent, void *);
+static int spdy_stream_io(TSCont, TSEvent, void *);
 static TSMLoc make_ts_http_request(TSMBuffer, const spdy::key_value_block&);
 static void print_ts_http_header(unsigned, TSMBuffer, TSMLoc);
 static void send_http_txn_result(spdy_io_stream *, TSHttpTxn);
@@ -115,7 +115,7 @@ resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
 {
     TSCont contp;
 
-    contp = TSContCreate(spdy_session_io, TSMutexCreate());
+    contp = TSContCreate(spdy_stream_io, TSMutexCreate());
     TSContDataSet(contp, stream);
     retain(stream);
 
@@ -212,9 +212,8 @@ initiate_client_request(
     blk = TSIOBufferStart(iobuf.buffer);
     ptr = (const char *)TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
 
-    // XXX if the TCP connection drops while this request is in-flight, it will
-    // complete with a dangling stream pointer. Need to figure out how we can
-    // cancel this.
+    // Keep a refcount on the SPDY stream in case the TCP connection drops
+    // while the request is in-flight.
     TSFetchUrl(ptr, nbytes, addr, contp, AFTER_BODY, events);
     retain(stream);
     return true;
@@ -275,7 +274,12 @@ send_http_txn_error(
     TSHttpHdrVersionSet(buffer.get(), header.get(), TS_HTTP_VERSION(1, 1));
     TSHttpHdrStatusSet(buffer.get(), header.get(), status);
 
-    debug_http("[%u] sending a HTTP %d result", stream->stream_id, status);
+    debug_http("[%u] sending a HTTP %d result for %s %s://%s%s",
+            stream->stream_id, status,
+            stream->kvblock.url().method.c_str(),
+            stream->kvblock.url().scheme.c_str(),
+            stream->kvblock.url().hostport.c_str(),
+            stream->kvblock.url().path.c_str());
 
     send_http_response(stream, buffer.get(), header.get());
     spdy_send_data_frame(stream, spdy::FLAG_FIN, nullptr, 0);
@@ -392,10 +396,16 @@ make_ts_http_request(
 }
 
 static int
-spdy_session_io(TSCont contp, TSEvent ev, void * edata)
+spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
 {
     TSHostLookupResult dns = (TSHostLookupResult)edata;
     spdy_io_stream * stream = spdy_io_stream::get(contp);
+
+    if (!stream->is_open()) {
+        debug_protocol("[%u] received %s on closed stream",
+                stream->stream_id, cstringof(ev));
+        goto done;
+    }
 
     switch (ev) {
     case TS_EVENT_HOST_LOOKUP:
@@ -409,8 +419,7 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
             initiate_client_request(stream, addr.saddr(), contp);
         } else {
             // Experimentally, if the DNS lookup fails, web proxies return 502
-            // Bad Gateway. We should cobble up a HTTP response to tunnel back
-            // in a SYN_REPLY.
+            // Bad Gateway.
             send_http_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
         }
 
@@ -419,28 +428,34 @@ spdy_session_io(TSCont contp, TSEvent ev, void * edata)
     case SPDY_EVENT_HTTP_SUCCESS:
         send_http_txn_result(stream, (TSHttpTxn)edata);
         stream->io->reenable();
+        stream->close();
         break;
 
     case SPDY_EVENT_HTTP_FAILURE:
         debug_http("[%u] HTTP failure event", stream->stream_id);
         send_http_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
+        stream->io->reenable();
+        stream->close();
         break;
 
     case SPDY_EVENT_HTTP_TIMEOUT:
         debug_http("[%u] HTTP timeout event", stream->stream_id);
         send_http_txn_error(stream, TS_HTTP_STATUS_GATEWAY_TIMEOUT);
+        stream->io->reenable();
+        stream->close();
         break;
 
     default:
-        debug_plugin("unexpected accept event %s", cstringof(ev));
+        debug_plugin("unexpected stream event %s", cstringof(ev));
     }
 
+done:
     release(stream);
     return TS_EVENT_NONE;
 }
 
 spdy_io_stream::spdy_io_stream(unsigned s)
-    : stream_id(s), action(nullptr), kvblock()
+    : stream_id(s), state(inactive_state), action(nullptr), kvblock()
 {
 }
 
@@ -452,9 +467,27 @@ spdy_io_stream::~spdy_io_stream()
 }
 
 void
-spdy_io_stream::start()
+spdy_io_stream::close()
 {
-    resolve_host_name(this, kvblock.url().hostport);
+    if (action) {
+        TSActionCancel(action);
+        action = nullptr;
+    }
+
+    state = closed_state;
+}
+
+bool
+spdy_io_stream::open(spdy::key_value_block& kv)
+{
+    if (state == inactive_state) {
+        kvblock = kv;
+        resolve_host_name(this, kvblock.url().hostport);
+        state = open_state;
+        return true;
+    }
+
+    return false;
 }
 
 /* vim: set sw=4 ts=4 tw=79 et : */

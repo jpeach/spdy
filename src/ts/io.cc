@@ -18,7 +18,8 @@
 #include <spdy/spdy.h>
 #include "io.h"
 
-spdy_io_control::spdy_io_control(TSVConn v) : vconn(v)
+spdy_io_control::spdy_io_control(TSVConn v)
+    : vconn(v), input(), output(), streams(), last_stream_id(0)
 {
 }
 
@@ -41,6 +42,42 @@ spdy_io_control::reenable()
     TSMutexLock(mutex);
     TSVIOReenable(vio);
     TSMutexUnlock(mutex);
+}
+
+bool
+spdy_io_control::valid_client_stream_id(unsigned stream_id) const
+{
+    if (stream_id == 0) { return false; } // must not be zero
+    if ((stream_id % 2) == 0) { return false; } // must be odd
+    return stream_id > last_stream_id;
+}
+
+spdy_io_stream *
+spdy_io_control::create_stream(unsigned stream_id)
+{
+    std::auto_ptr<spdy_io_stream> ptr(new spdy_io_stream(stream_id));
+    std::pair<stream_map_type::iterator, bool> result;
+
+    result = streams.insert(std::make_pair(stream_id, ptr.get()));
+    if (result.second) {
+        // Insert succeeded, hold a refcount on the stream.
+        retain(ptr.get());
+        last_stream_id = stream_id;
+        return ptr.release();
+    }
+
+    // stream-id collision ... fail and autorelease.
+    return NULL;
+}
+
+void
+spdy_io_control::destroy_stream(unsigned stream_id)
+{
+    stream_map_type::iterator ptr(streams.find(stream_id));
+    if (ptr != streams.end()) {
+        release(ptr->second);
+        streams.erase(ptr);
+    }
 }
 
 /* vim: set sw=4 ts=4 tw=79 et : */
