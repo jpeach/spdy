@@ -34,7 +34,8 @@ spdy_rst_stream(
 
     rst = spdy::rst_stream_message::parse(ptr, header.datalen);
 
-    debug_protocol("received %s frame stream=%u status_code=%s (%u)",
+    debug_protocol("[%p/%u] received %s frame stream=%u status_code=%s (%u)",
+            io, rst.stream_id,
             cstringof(header.control.type), rst.stream_id,
             cstringof((spdy::error)rst.status_code), rst.status_code);
 
@@ -50,13 +51,17 @@ spdy_syn_stream(
     spdy::syn_stream_message    syn;
     spdy_io_stream *            stream;
 
-    debug_protocol("received %s frame stream=%u associated=%u priority=%u headers=%zu",
-            cstringof(header.control.type), syn.stream_id,
-            syn.associated_id, syn.priority, kvblock.size());
-
     syn = spdy::syn_stream_message::parse(ptr, header.datalen);
+
+    debug_protocol(
+            "[%p/%u] received %s frame stream=%u associated=%u priority=%u",
+            io, syn.stream_id,
+            cstringof(header.control.type), syn.stream_id,
+            syn.associated_id, syn.priority);
+
     if (!io->valid_client_stream_id(syn.stream_id)) {
-        debug_protocol("invalid stream-id %u", syn.stream_id);
+        debug_protocol("[%p/%u] invalid stream-id %u",
+                io, syn.stream_id, syn.stream_id);
         spdy_send_reset_stream(io, syn.stream_id, spdy::PROTOCOL_ERROR);
         return;
     }
@@ -65,7 +70,8 @@ spdy_syn_stream(
     case spdy::PROTOCOL_VERSION_2: // fallthru
     case spdy::PROTOCOL_VERSION_3: break;
     default:
-        debug_protocol("bad protocol version %d", header.control.version);
+        debug_protocol("[%p/%u] bad protocol version %d",
+                io, syn.stream_id, header.control.version);
         spdy_send_reset_stream(io, syn.stream_id, spdy::PROTOCOL_ERROR);
         return;
     }
@@ -79,13 +85,14 @@ spdy_syn_stream(
     );
 
     if (!kvblock.url().is_complete()) {
-        debug_protocol("incomplete URL");
+        debug_protocol("[%p/%u] incomplete URL", io, syn.stream_id);
         // XXX missing URL, protocol error
         // 3.2.1 400 Bad Request
     }
 
     if ((stream = io->create_stream(syn.stream_id)) == 0) {
-        debug_protocol("failed to create stream %u", syn.stream_id);
+        debug_protocol("[%p/%u] failed to create stream %u",
+                io, syn.stream_id, syn.stream_id);
         spdy_send_reset_stream(io, syn.stream_id, spdy::INVALID_STREAM);
         return;
     }
@@ -114,8 +121,9 @@ dispatch_spdy_control_frame(
     case spdy::CONTROL_GOAWAY:
     case spdy::CONTROL_HEADERS:
     case spdy::CONTROL_WINDOW_UPDATE:
-        debug_protocol("SPDY control frame, version=%u type=%s flags=0x%x, %zu bytes",
-            header.control.version, cstringof(header.control.type),
+        debug_protocol(
+            "[%p] SPDY control frame, version=%u type=%s flags=0x%x, %zu bytes",
+            io, header.control.version, cstringof(header.control.type),
             header.flags, header.datalen);
         break;
     default:
@@ -149,8 +157,8 @@ next_frame:
                 header.control.version, spdy::PROTOCOL_VERSION);
         }
     } else {
-        debug_protocol("SPDY data frame, stream=%u flags=0x%x, %zu bytes",
-            header.data.stream_id, header.flags, header.datalen);
+        debug_protocol("[%p] SPDY data frame, stream=%u flags=0x%x, %zu bytes",
+            io, header.data.stream_id, header.flags, header.datalen);
     }
 
     if (header.datalen >= spdy::MAX_FRAME_LENGTH) {
@@ -227,15 +235,13 @@ spdy_vconn_io(TSCont contp, TSEvent ev, void * edata)
 static int
 spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
 {
-    TSVConn vconn;
-    spdy_io_control * io;
+    TSVConn             vconn = (TSVConn)edata;;
+    spdy_io_control *   io = nullptr;
 
     TSVIO read_vio, write_vio;
 
     switch (ev) {
     case TS_EVENT_NET_ACCEPT:
-        debug_protocol("accepting new SPDY session");
-        vconn = (TSVConn)edata;
         io = new spdy_io_control(vconn);
         io->input.watermark(spdy::message_header::size);
         io->output.watermark(spdy::message_header::size);
@@ -244,6 +250,7 @@ spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
         TSContDataSet(contp, io);
         read_vio = TSVConnRead(vconn, contp, io->input.buffer, INT64_MAX);
         write_vio = TSVConnWrite(vconn, contp, io->output.reader, INT64_MAX);
+        debug_protocol("accepted new SPDY session %p", io);
         break;
     default:
         debug_plugin("unexpected accept event %s", cstringof(ev));

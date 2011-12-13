@@ -48,8 +48,8 @@ spdy_send_reset_stream(
     nbytes += spdy::message_header::marshall(hdr, ptr, sizeof(buffer));
     nbytes += spdy::rst_stream_message::marshall(rst, ptr, sizeof(buffer) - nbytes);
 
-    debug_protocol("resetting stream %u with error %s",
-            stream_id, cstringof(status));
+    debug_protocol("[%p/%u] sending %s stream %u with error %s",
+            io, stream_id, cstringof(hdr.control.type), stream_id, cstringof(status));
     TSIOBufferWrite(io->output.buffer, buffer, nbytes);
 }
 
@@ -92,8 +92,9 @@ spdy_send_syn_reply(
                         msg.syn, buffer, sizeof(buffer)));
 
     nbytes += TSIOBufferWrite(stream->io->output.buffer, &hdrs[0], hdrs.size());
-    debug_protocol("%s hdr.datalen=%u",
-           cstringof(spdy::CONTROL_SYN_REPLY), (unsigned)msg.hdr.datalen);
+    debug_protocol("[%p/%u] sending %s hdr.datalen=%u",
+           stream->io, stream->stream_id, cstringof(spdy::CONTROL_SYN_REPLY),
+           (unsigned)msg.hdr.datalen);
 }
 
 void
@@ -144,7 +145,8 @@ spdy_send_data_frame(
         }
     }
 
-    debug_protocol("DATA flags=%x hdr.datalen=%u", flags, (unsigned)hdr.datalen);
+    debug_protocol("[%p/%u] sending DATA flags=%x hdr.datalen=%u",
+            stream->io, stream->stream_id, flags, (unsigned)hdr.datalen);
 }
 
 /* vim: set sw=4 tw=79 ts=4 et ai : */

@@ -274,8 +274,8 @@ send_http_txn_error(
     TSHttpHdrVersionSet(buffer.get(), header.get(), TS_HTTP_VERSION(1, 1));
     TSHttpHdrStatusSet(buffer.get(), header.get(), status);
 
-    debug_http("[%u] sending a HTTP %d result for %s %s://%s%s",
-            stream->stream_id, status,
+    debug_http("[%p/%u] sending a HTTP %d result for %s %s://%s%s",
+            stream->io, stream->stream_id, status,
             stream->kvblock.url().method.c_str(),
             stream->kvblock.url().scheme.c_str(),
             stream->kvblock.url().hostport.c_str(),
@@ -305,7 +305,8 @@ send_http_txn_result(
 
     body = TSFetchRespGet(txn, &len);
     if (body) {
-        debug_http("body %p is %d bytes", body, len);
+        debug_http("[%p/%u] body %p is %d bytes", stream->io,
+                stream->stream_id, body, len);
         spdy_send_data_frame(
                 stream, 0 /*| spdy::FLAG_COMPRESSED*/, body, len);
     }
@@ -402,8 +403,8 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
     spdy_io_stream * stream = spdy_io_stream::get(contp);
 
     if (!stream->is_open()) {
-        debug_protocol("[%u] received %s on closed stream",
-                stream->stream_id, cstringof(ev));
+        debug_protocol("[%p/%u] received %s on closed stream",
+                stream->io, stream->stream_id, cstringof(ev));
         goto done;
     }
 
@@ -413,7 +414,8 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
 
         if (dns) {
             inet_address addr(TSHostLookupResultAddrGet(dns));
-            debug_http("[%u] resolved %s => %s", stream->stream_id,
+            debug_http("[%p/%u] resolved %s => %s",
+                    stream->io, stream->stream_id,
                     stream->kvblock.url().hostport.c_str(), cstringof(addr));
             addr.port() = htons(80); // XXX should be parsed from hostport
             initiate_client_request(stream, addr.saddr(), contp);
@@ -432,14 +434,14 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
         break;
 
     case SPDY_EVENT_HTTP_FAILURE:
-        debug_http("[%u] HTTP failure event", stream->stream_id);
+        debug_http("[%p/%u] HTTP failure event", stream->io, stream->stream_id);
         send_http_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
         stream->io->reenable();
         stream->close();
         break;
 
     case SPDY_EVENT_HTTP_TIMEOUT:
-        debug_http("[%u] HTTP timeout event", stream->stream_id);
+        debug_http("[%p/%u] HTTP timeout event", stream->io, stream->stream_id);
         send_http_txn_error(stream, TS_HTTP_STATUS_GATEWAY_TIMEOUT);
         stream->io->reenable();
         stream->close();
