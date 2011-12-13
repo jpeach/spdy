@@ -484,8 +484,8 @@ spdy_io_stream::open(spdy::key_value_block& kv)
 {
     if (state == inactive_state) {
         kvblock = kv;
-        resolve_host_name(this, kvblock.url().hostport);
         state = open_state;
+        resolve_host_name(this, kvblock.url().hostport);
         return true;
     }
 
