@@ -133,8 +133,8 @@ populate_http_headers(
         spdy::protocol_version version,
         spdy::key_value_block& kvblock)
 {
-    char status[sizeof("4294967295")];
-    char httpvers[sizeof("HTTP/xx.xx") + 64];
+    char status[128];
+    char httpvers[sizeof("HTTP/xx.xx")];
 
     int vers = TSHttpHdrVersionGet(buffer, header);
     TSHttpStatus code = TSHttpHdrStatusGet(buffer, header);
@@ -142,7 +142,7 @@ populate_http_headers(
     snprintf(status, sizeof(status),
             "%u %s", (unsigned)code, TSHttpHdrReasonLookup(code));
     snprintf(httpvers, sizeof(httpvers),
-            "HTTP/%u.%u", TS_HTTP_MAJOR(vers), TS_HTTP_MINOR(vers));
+            "HTTP/%2u.%2u", TS_HTTP_MAJOR(vers), TS_HTTP_MINOR(vers));
 
     if (version == spdy::PROTOCOL_VERSION_2) {
         kvblock["status"] = status;
@@ -243,6 +243,8 @@ send_http_response(
                 strcmp(name.first, TS_MIME_FIELD_KEEP_ALIVE) == 0 ||
                 strcmp(name.first, TS_MIME_FIELD_PROXY_CONNECTION) == 0 ||
                 strcmp(name.first, TS_MIME_FIELD_TRANSFER_ENCODING) == 0) {
+            debug_http("[%p/%u] skipping %s header",
+                    stream->io, stream->stream_id, name.first);
             goto skip;
         }
 
