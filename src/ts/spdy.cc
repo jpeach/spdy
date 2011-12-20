@@ -226,7 +226,7 @@ spdy_vconn_io(TSCont contp, TSEvent ev, void * edata)
         }
         io = spdy_io_control::get(contp);
         TSVConnClose(io->vconn);
-        delete io;
+        release(io);
     }
 
     return TS_EVENT_NONE;
@@ -242,7 +242,7 @@ spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
 
     switch (ev) {
     case TS_EVENT_NET_ACCEPT:
-        io = new spdy_io_control(vconn);
+        io = retain(new spdy_io_control(vconn));
         io->input.watermark(spdy::message_header::size);
         io->output.watermark(spdy::message_header::size);
         // XXX is contp leaked here?

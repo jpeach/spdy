@@ -52,7 +52,7 @@ struct spdy_io_stream : public countable
     }
 };
 
-struct spdy_io_control
+struct spdy_io_control : public countable
 {
     spdy_io_control(TSVConn);
     ~spdy_io_control();

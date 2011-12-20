@@ -29,7 +29,7 @@ struct countable
     virtual ~countable() {}
 
 private:
-    unsigned refcnt;
+    volatile int refcnt;
 
     template <typename T> friend T * retain(T * ptr);
     template <typename T> friend void release(T * ptr);

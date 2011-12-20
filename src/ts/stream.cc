@@ -215,7 +215,6 @@ initiate_client_request(
     // Keep a refcount on the SPDY stream in case the TCP connection drops
     // while the request is in-flight.
     TSFetchUrl(ptr, nbytes, addr, contp, AFTER_BODY, events);
-    retain(stream);
     return true;
 }
 
@@ -418,7 +417,11 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
                     stream->io, stream->stream_id,
                     stream->kvblock.url().hostport.c_str(), cstringof(addr));
             addr.port() = htons(80); // XXX should be parsed from hostport
-            initiate_client_request(stream, addr.saddr(), contp);
+            if (initiate_client_request(stream, addr.saddr(), contp)) {
+                retain(stream);
+                retain(stream->io);
+            }
+
         } else {
             // Experimentally, if the DNS lookup fails, web proxies return 502
             // Bad Gateway.
@@ -452,6 +455,7 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
     }
 
 done:
+    release(stream->io);
     release(stream);
     return TS_EVENT_NONE;
 }
@@ -483,6 +487,9 @@ bool
 spdy_io_stream::open(spdy::key_value_block& kv)
 {
     if (state == inactive_state) {
+        // Make sure we keep a refcount on our enclosing control block so that
+        // it stays live as long as we do.
+        retain(io);
         kvblock = kv;
         state = open_state;
         resolve_host_name(this, kvblock.url().hostport);
