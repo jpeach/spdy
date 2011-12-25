@@ -35,5 +35,11 @@ spdy_send_data_frame(
         const void *        ptr,
         size_t              nbytes);
 
+void
+spdy_send_ping(
+        spdy_io_control *       io,
+        spdy::protocol_version  version,
+        unsigned                ping_id);
+
 #endif /* PROTOCOL_H_46E29A3D_9EE6_4C4F_A355_FF42DE19EF18 */
 /* vim: set sw=4 ts=4 tw=79 et : */

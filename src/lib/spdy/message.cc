@@ -69,7 +69,6 @@ spdy::message_header::parse(
     header.is_control = ((*ptr) & 0x80u) ? true : false;
     if (header.is_control) {
         uint32_t val;
-
         header.control.version = ntohs(extract<uint16_t>(ptr)) & 0x7fffu;
         header.control.type = (control_frame_type)ntohs(extract<uint16_t>(ptr));
         val = ntohl(extract<uint32_t>(ptr));
@@ -441,6 +440,32 @@ spdy::key_value_block::nbytes(protocol_version version) const
     }
 
     return nbytes;
+}
+
+spdy::ping_message
+spdy::ping_message::parse(
+        const uint8_t __restrict * ptr, size_t len)
+{
+    ping_message msg;
+
+    if (len < ping_message::size) {
+        throw protocol_error(std::string("short ping message"));
+    }
+
+    msg.ping_id = ntohl(extract<uint32_t>(ptr));
+    return msg;
+}
+
+size_t
+spdy::ping_message::marshall(
+        const ping_message& msg, uint8_t __restrict * ptr, size_t len)
+{
+    if (len < ping_message::size) {
+        throw protocol_error(std::string("short ping_message buffer"));
+    }
+
+    insert<uint32_t>(htonl(msg.ping_id), ptr);
+    return ping_message::size;
 }
 
 /* vim: set sw=4 ts=4 tw=79 et : */

@@ -149,4 +149,35 @@ spdy_send_data_frame(
             stream->io, stream->stream_id, flags, (unsigned)hdr.datalen);
 }
 
+void
+spdy_send_ping(
+        spdy_io_control *       io,
+        spdy::protocol_version  version,
+        unsigned                ping_id)
+{
+    union {
+        spdy::message_header    hdr;
+        spdy::ping_message      ping;
+    } msg;
+
+    size_t                  nbytes = 0;
+    uint8_t buffer[spdy::ping_message::size + spdy::message_header::size];
+
+    msg.hdr.is_control = true;
+    msg.hdr.control.version = version;
+    msg.hdr.control.type = spdy::CONTROL_PING;
+    msg.hdr.flags = 0;
+    msg.hdr.datalen = spdy::ping_message::size;
+    nbytes += spdy::message_header::marshall(
+            msg.hdr, buffer + nbytes, sizeof(buffer) - nbytes);
+
+    msg.ping.ping_id = ping_id;
+    nbytes += spdy::ping_message::marshall(
+            msg.ping, buffer + nbytes, sizeof(buffer) - nbytes);
+
+    TSIOBufferWrite(io->output.buffer, buffer, nbytes);
+
+    debug_protocol("[%p] sending PING id=%x", io, msg.ping.ping_id);
+}
+
 /* vim: set sw=4 tw=79 ts=4 et ai : */

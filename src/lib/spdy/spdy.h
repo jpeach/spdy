@@ -197,6 +197,15 @@ namespace spdy {
         enum : unsigned { size = 8 }; /* bytes */
     };
 
+    struct ping_message
+    {
+        unsigned ping_id;
+
+        static ping_message parse(const uint8_t *, size_t);
+        static size_t marshall(const ping_message&, uint8_t *, size_t);
+        enum : unsigned { size = 4 }; /* bytes */
+    };
+
     struct url_components
     {
         std::string method;

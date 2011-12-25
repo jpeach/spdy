@@ -25,7 +25,7 @@
 static int spdy_vconn_io(TSCont, TSEvent, void *);
 
 static void
-spdy_rst_stream(
+recv_rst_stream(
         const spdy::message_header& header,
         spdy_io_control *           io,
         const uint8_t __restrict *  ptr)
@@ -43,7 +43,7 @@ spdy_rst_stream(
 }
 
 static void
-spdy_syn_stream(
+recv_syn_stream(
         const spdy::message_header& header,
         spdy_io_control *           io,
         const uint8_t __restrict *  ptr)
@@ -103,6 +103,27 @@ spdy_syn_stream(
 }
 
 static void
+recv_ping(
+        const spdy::message_header& header,
+        spdy_io_control *           io,
+        const uint8_t __restrict *  ptr)
+{
+    spdy::ping_message ping;
+
+    ping = spdy::ping_message::parse(ptr, header.datalen);
+
+    debug_protocol("[%p] received PING id=%u", io, ping.ping_id);
+
+    // Client must send even ping-ids. Ignore the odd ones since
+    // we never send them.
+    if ((ping.ping_id % 2) == 0) {
+        return;
+    }
+
+    spdy_send_ping(io, (spdy::protocol_version)header.control.version, ping.ping_id);
+}
+
+static void
 dispatch_spdy_control_frame(
         const spdy::message_header& header,
         spdy_io_control *           io,
@@ -110,19 +131,21 @@ dispatch_spdy_control_frame(
 {
     switch (header.control.type) {
     case spdy::CONTROL_SYN_STREAM:
-        spdy_syn_stream(header, io, ptr);
+        recv_syn_stream(header, io, ptr);
         break;
     case spdy::CONTROL_SYN_REPLY:
     case spdy::CONTROL_RST_STREAM:
-        spdy_rst_stream(header, io, ptr);
+        recv_rst_stream(header, io, ptr);
+        break;
+    case spdy::CONTROL_PING:
+        recv_ping(header, io, ptr);
         break;
     case spdy::CONTROL_SETTINGS:
-    case spdy::CONTROL_PING:
     case spdy::CONTROL_GOAWAY:
     case spdy::CONTROL_HEADERS:
     case spdy::CONTROL_WINDOW_UPDATE:
         debug_protocol(
-            "[%p] SPDY control frame, version=%u type=%s flags=0x%x, %zu bytes",
+            "[%p] SPDY control frame, version=%u type=%s flags=0x%x, %u bytes",
             io, header.control.version, cstringof(header.control.type),
             header.flags, header.datalen);
         break;
