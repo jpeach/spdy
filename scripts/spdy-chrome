@@ -1,0 +1,18 @@
+#! /bin/bash
+
+chrome()
+{
+    local exe
+
+    for a in ~/Applications /Applications ; do
+        exe="$a/Google Chrome.app/Contents/MacOS/Google Chrome"
+        if [ -x "$exe" ] ; then
+            echo $exe
+            return
+        fi
+    done
+}
+
+exec "$(chrome)" --use-spdy=no-ssl --host-resolver-rules="MAP * localhost:9999"
+
+# vim: set sw=4 ts=4 et :
