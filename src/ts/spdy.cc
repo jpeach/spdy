@@ -151,7 +151,7 @@ dispatch_spdy_control_frame(
         break;
     default:
         // SPDY 2.2.1 - MUST ignore unrecognized control frames
-        TSError("ignoring invalid control frame type %u", header.control.type);
+        TSError("[spdy] ignoring invalid control frame type %u", header.control.type);
     }
 
     io->reenable();

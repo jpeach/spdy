@@ -177,7 +177,7 @@ spdy_send_ping(
 
     TSIOBufferWrite(io->output.buffer, buffer, nbytes);
 
-    debug_protocol("[%p] sending PING id=%x", io, msg.ping.ping_id);
+    debug_protocol("[%p] sending PING id=%u", io, msg.ping.ping_id);
 }
 
 /* vim: set sw=4 tw=79 ts=4 et ai : */
