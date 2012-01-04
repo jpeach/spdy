@@ -88,6 +88,9 @@ recv_syn_stream(
         debug_protocol("[%p/%u] incomplete URL", io, syn.stream_id);
         // XXX missing URL, protocol error
         // 3.2.1 400 Bad Request
+        spdy_send_reset_stream(io, syn.stream_id, spdy::INVALID_STREAM);
+        // XXX send_http_txn_result()
+        return;
     }
 
     if ((stream = io->create_stream(syn.stream_id)) == 0) {
