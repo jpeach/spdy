@@ -160,6 +160,30 @@ dispatch_spdy_control_frame(
     io->reenable();
 }
 
+static size_t
+count_bytes_available(
+        TSIOBuffer          buffer,
+        TSIOBufferReader    reader)
+{
+    TSIOBufferBlock block;
+    size_t count = 0;
+
+    block = TSIOBufferStart(buffer);
+    while (block) {
+        const char * ptr;
+        int64_t nbytes;
+
+        ptr = TSIOBufferBlockReadStart(block, reader, &nbytes);
+        if (ptr && nbytes) {
+            count += nbytes;
+        }
+
+        block = TSIOBufferBlockNext(block);
+    }
+
+    return count;
+}
+
 static void
 consume_spdy_frame(spdy_io_control * io)
 {
@@ -170,9 +194,24 @@ consume_spdy_frame(spdy_io_control * io)
 
 next_frame:
 
-    blk = TSIOBufferStart(io->input.buffer);
+    blk = TSIOBufferReaderStart(io->input.reader);
     ptr = (const uint8_t *)TSIOBufferBlockReadStart(blk, io->input.reader, &nbytes);
-    TSReleaseAssert(nbytes >= spdy::message_header::size);
+    if (!ptr) {
+        // This should not fail because we only try to consume the header when
+        // there are enough bytes to read the header. Experimentally, however,
+        // it does fail. I wonder why.
+        TSError("TSIOBufferBlockReadStart failed unexpectedly");
+        return;
+    }
+
+    if (nbytes < spdy::message_header::size) {
+        // We should never get here, because we check for space before
+        // entering. Unfortunately this does happen :(
+        debug_plugin("short read %lld bytes, expected at least %u, real count %zu",
+                nbytes, spdy::message_header::size,
+                count_bytes_available(io->input.buffer, io->input.reader));
+        return;
+    }
 
     header = spdy::message_header::parse(ptr, (size_t)nbytes);
     TSAssert(header.datalen > 0); // XXX
