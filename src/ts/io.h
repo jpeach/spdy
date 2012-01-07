@@ -104,14 +104,14 @@ struct spdy_io_control : public countable
     }
 };
 
-template <typename T, T (*A)(void), TSReturnCode (*D)(T)>
+template <typename T, T (*Alloc)(void), TSReturnCode (*Destroy)(T)>
 struct scoped_ts_object
 {
-    scoped_ts_object() : ts(A()) {
+    scoped_ts_object() : ts(Alloc()) {
     }
 
     ~scoped_ts_object() {
-        D(ts);
+        Destroy(ts);
     }
 
     T get() const {
