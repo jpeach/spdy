@@ -17,7 +17,7 @@
 #include <ts/ts.h>
 #include <spdy/spdy.h>
 #include <base/logging.h>
-#include <netinet/in.h>
+#include <base/inet.h>
 #include "io.h"
 #include "protocol.h"
 
@@ -72,37 +72,6 @@ struct scoped_http_header
 private:
     TSMLoc      header;
     TSMBuffer   buffer;
-};
-
-struct inet_address
-{
-    explicit inet_address(const struct sockaddr * addr) {
-        memcpy(&sa.storage, addr, addr->sa_len);
-    }
-
-    uint16_t& port() {
-        switch (sa.storage.ss_family) {
-        case AF_INET:
-            return sa.in.sin_port;
-        case AF_INET6:
-            return sa.in6.sin6_port;
-        default:
-            TSReleaseAssert("invalid inet address type");
-            return sa.in.sin_port;
-        }
-    }
-
-    const sockaddr * saddr() const {
-        return &sa.sa;
-    }
-
-private:
-    union {
-        struct sockaddr_in  in;
-        struct sockaddr_in6 in6;
-        struct sockaddr     sa;
-        struct sockaddr_storage storage;
-    } sa;
 };
 
 template <> std::string
