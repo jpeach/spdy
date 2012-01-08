@@ -33,8 +33,8 @@ struct inet_address
         case AF_INET6:
             return sa.in6.sin6_port;
         default:
-            TSReleaseAssert("invalid inet address type");
-            return sa.in.sin_port;
+            TSError("invalid inet address type %u", sa.storage.ss_family);
+            abort();
         }
     }
 
