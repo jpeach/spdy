@@ -20,6 +20,7 @@
 #include <base/logging.h>
 
 #include "io.h"
+#include "http.h"
 #include "protocol.h"
 
 static int spdy_vconn_io(TSCont, TSEvent, void *);
@@ -84,15 +85,6 @@ recv_syn_stream(
                     header.datalen - spdy::syn_stream_message::size)
     );
 
-    if (!kvblock.url().is_complete()) {
-        debug_protocol("[%p/%u] incomplete URL", io, syn.stream_id);
-        // XXX missing URL, protocol error
-        // 3.2.1 400 Bad Request
-        spdy_send_reset_stream(io, syn.stream_id, spdy::INVALID_STREAM);
-        // XXX send_http_txn_result()
-        return;
-    }
-
     if ((stream = io->create_stream(syn.stream_id)) == 0) {
         debug_protocol("[%p/%u] failed to create stream %u",
                 io, syn.stream_id, syn.stream_id);
@@ -102,6 +94,16 @@ recv_syn_stream(
 
     stream->io = io;
     stream->version = (spdy::protocol_version)header.control.version;
+
+    if (!kvblock.url().is_complete()) {
+        debug_protocol("[%p/%u] incomplete URL", io, stream->stream_id);
+        // 3.2.1; missing URL, protocol error; 400 Bad Request
+        http_send_txn_error(stream, TS_HTTP_STATUS_BAD_REQUEST);
+        spdy_send_reset_stream(io, stream->stream_id, spdy::CANCEL);
+        io->destroy_stream(stream->stream_id);
+        return;
+    }
+
     stream->open(kvblock);
 }
 
