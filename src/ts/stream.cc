@@ -20,6 +20,7 @@
 #include <base/inet.h>
 #include "io.h"
 #include "protocol.h"
+#include "http.h"
 
 #define SPDY_EVENT_HTTP_SUCCESS     90000
 #define SPDY_EVENT_HTTP_FAILURE     90001
@@ -27,52 +28,6 @@
 
 static int spdy_stream_io(TSCont, TSEvent, void *);
 static TSMLoc make_ts_http_request(TSMBuffer, const spdy::key_value_block&);
-static void print_ts_http_header(unsigned, TSMBuffer, TSMLoc);
-static void send_http_txn_result(spdy_io_stream *, TSHttpTxn);
-static void send_http_txn_error(spdy_io_stream *, TSHttpStatus);
-
-typedef scoped_ts_object<TSMBuffer, TSMBufferCreate, TSMBufferDestroy> scoped_mbuffer;
-
-struct scoped_http_header
-{
-    explicit scoped_http_header(TSMBuffer b)
-            : header(TS_NULL_MLOC), buffer(b) {
-        header = TSHttpHdrCreate(buffer);
-    }
-
-    scoped_http_header(TSMBuffer b, TSMLoc h)
-            : header(h), buffer(b) {
-    }
-
-    ~scoped_http_header() {
-        if (header != TS_NULL_MLOC) {
-            TSHttpHdrDestroy(buffer, header);
-            TSHandleMLocRelease(buffer, TS_NULL_MLOC, header);
-        }
-    }
-
-    operator bool() const {
-        return header != TS_NULL_MLOC;
-    }
-
-    operator TSMLoc() const {
-        return header;
-    }
-
-    TSMLoc get() {
-        return header;
-    }
-
-    TSMLoc release() {
-        TSMLoc tmp = TS_NULL_MLOC;
-        std::swap(tmp, header);
-        return tmp;
-    }
-
-private:
-    TSMLoc      header;
-    TSMBuffer   buffer;
-};
 
 static void
 resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
@@ -90,33 +45,6 @@ resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
     }
 }
 
-static void
-populate_http_headers(
-        TSMBuffer   buffer,
-        TSMLoc      header,
-        spdy::protocol_version version,
-        spdy::key_value_block& kvblock)
-{
-    char status[128];
-    char httpvers[sizeof("HTTP/xx.xx")];
-
-    int vers = TSHttpHdrVersionGet(buffer, header);
-    TSHttpStatus code = TSHttpHdrStatusGet(buffer, header);
-
-    snprintf(status, sizeof(status),
-            "%u %s", (unsigned)code, TSHttpHdrReasonLookup(code));
-    snprintf(httpvers, sizeof(httpvers),
-            "HTTP/%2u.%2u", TS_HTTP_MAJOR(vers), TS_HTTP_MINOR(vers));
-
-    if (version == spdy::PROTOCOL_VERSION_2) {
-        kvblock["status"] = status;
-        kvblock["version"] = httpvers;
-    } else {
-        kvblock[":status"] = status;
-        kvblock[":version"] = httpvers;
-    }
-}
-
 static bool
 http_method_is_supported(
         TSMBuffer   buffer,
@@ -131,173 +59,6 @@ http_method_is_supported(
     }
 
     return false;
-}
-
-static bool
-initiate_client_request(
-        spdy_io_stream *        stream,
-        const struct sockaddr * addr,
-        TSCont                  contp)
-
-{
-    scoped_mbuffer      buffer;
-    spdy_io_control::buffered_stream iobuf;
-    int64_t nbytes;
-    const char * ptr;
-    TSIOBufferBlock blk;
-
-    scoped_http_header header(
-            buffer.get(), make_ts_http_request(buffer.get(), stream->kvblock));
-    if (!header) {
-        return false;
-    }
-
-    print_ts_http_header(stream->stream_id, buffer.get(), header);
-
-    if (!http_method_is_supported(buffer.get(), header.get())) {
-        send_http_txn_error(stream, TS_HTTP_STATUS_METHOD_NOT_ALLOWED);
-        return true;
-    }
-
-    // For POST requests which may contain a lot of data, we probably need to
-    // do a bunch of work. Looks like the recommended path is:
-    //      TSHttpConnect()
-    //      TSVConnWrite() to send an HTTP request.
-    //      TSVConnRead() to get the HTTP response.
-    //      TSHttpParser to parse the response (if needed).
-
-    TSFetchEvent events = {
-        /* success_event_id */ SPDY_EVENT_HTTP_SUCCESS,
-        /* failure_event_id */ SPDY_EVENT_HTTP_FAILURE,
-        /* timeout_event_id */ SPDY_EVENT_HTTP_TIMEOUT
-    };
-
-    TSHttpHdrPrint(buffer.get(), header, iobuf.buffer);
-    blk = TSIOBufferStart(iobuf.buffer);
-    ptr = (const char *)TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
-
-    // Keep a refcount on the SPDY stream in case the TCP connection drops
-    // while the request is in-flight.
-    TSFetchUrl(ptr, nbytes, addr, contp, AFTER_BODY, events);
-    return true;
-}
-
-static void
-send_http_response(
-        spdy_io_stream *    stream,
-        TSMBuffer           buffer,
-        TSMLoc              header)
-{
-    TSMLoc      field;
-    spdy::key_value_block kvblock;
-
-    print_ts_http_header(stream->stream_id, buffer, header);
-
-    field = TSMimeHdrFieldGet(buffer, header, 0);
-    while (field) {
-        TSMLoc next;
-        std::pair<const char *, int> name;
-        std::pair<const char *, int> value;
-
-        name.first = TSMimeHdrFieldNameGet(buffer, header, field, &name.second);
-
-        // The Connection, Keep-Alive, Proxy-Connection, and Transfer-Encoding
-        // headers are not valid and MUST not be sent.
-        if (strcmp(name.first, TS_MIME_FIELD_CONNECTION) == 0 ||
-                strcmp(name.first, TS_MIME_FIELD_KEEP_ALIVE) == 0 ||
-                strcmp(name.first, TS_MIME_FIELD_PROXY_CONNECTION) == 0 ||
-                strcmp(name.first, TS_MIME_FIELD_TRANSFER_ENCODING) == 0) {
-            debug_http("[%p/%u] skipping %s header",
-                    stream->io, stream->stream_id, name.first);
-            goto skip;
-        }
-
-        value.first = TSMimeHdrFieldValueStringGet(buffer, header,
-                field, 0, &value.second);
-        kvblock[std::string(name.first, name.second)] =
-                std::string(value.first, value.second);
-
-skip:
-       next = TSMimeHdrFieldNext(buffer, header, field);
-       TSHandleMLocRelease(buffer, header, field);
-       field = next;
-    }
-
-    populate_http_headers(buffer, header, stream->version, kvblock);
-    spdy_send_syn_reply(stream, kvblock);
-}
-
-static void
-send_http_txn_error(
-        spdy_io_stream  *   stream,
-        TSHttpStatus        status)
-{
-    scoped_mbuffer      buffer;
-    scoped_http_header  header(buffer.get());
-
-    TSHttpHdrTypeSet(buffer.get(), header.get(), TS_HTTP_TYPE_RESPONSE);
-    TSHttpHdrVersionSet(buffer.get(), header.get(), TS_HTTP_VERSION(1, 1));
-    TSHttpHdrStatusSet(buffer.get(), header.get(), status);
-
-    debug_http("[%p/%u] sending a HTTP %d result for %s %s://%s%s",
-            stream->io, stream->stream_id, status,
-            stream->kvblock.url().method.c_str(),
-            stream->kvblock.url().scheme.c_str(),
-            stream->kvblock.url().hostport.c_str(),
-            stream->kvblock.url().path.c_str());
-
-    send_http_response(stream, buffer.get(), header.get());
-    spdy_send_data_frame(stream, spdy::FLAG_FIN, nullptr, 0);
-}
-
-static void
-send_http_txn_result(
-        spdy_io_stream  *   stream,
-        TSHttpTxn           txn)
-{
-    int         len;
-    char *      body;
-    TSMBuffer   buffer;
-    TSMLoc      header;
-
-    if (TSFetchHdrGet(txn, &buffer, &header) != TS_SUCCESS) {
-        spdy_send_reset_stream(stream->io, stream->stream_id,
-                spdy::PROTOCOL_ERROR);
-        return;
-    }
-
-    send_http_response(stream, buffer, header);
-
-    body = TSFetchRespGet(txn, &len);
-    if (body) {
-        debug_http("[%p/%u] body %p is %d bytes", stream->io,
-                stream->stream_id, body, len);
-        spdy_send_data_frame(
-                stream, 0 /*| spdy::FLAG_COMPRESSED*/, body, len);
-    }
-
-    spdy_send_data_frame(stream, spdy::FLAG_FIN, nullptr, 0);
-}
-
-static void
-print_ts_http_header(
-        unsigned    stream_id,
-        TSMBuffer   buffer,
-        TSMLoc      header)
-{
-    spdy_io_control::buffered_stream iobuf;
-    int64_t nbytes;
-    int64_t avail;
-    const char * ptr;
-    TSIOBufferBlock blk;
-
-    TSHttpHdrPrint(buffer, header, iobuf.buffer);
-    blk = TSIOBufferStart(iobuf.buffer);
-    avail = TSIOBufferBlockReadAvail(blk, iobuf.reader);
-    ptr = (const char *)TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
-
-    debug_http("[%u] http request (%zu of %zu bytes):\n%*.*s",
-            stream_id, nbytes, avail, (int)nbytes, (int)nbytes, ptr);
 }
 
 static void
@@ -361,6 +122,55 @@ make_ts_http_request(
     return header.release();
 }
 
+static bool
+initiate_client_request(
+        spdy_io_stream *        stream,
+        const struct sockaddr * addr,
+        TSCont                  contp)
+
+{
+    scoped_mbuffer      buffer;
+    spdy_io_control::buffered_stream iobuf;
+    int64_t nbytes;
+    const char * ptr;
+    TSIOBufferBlock blk;
+
+    scoped_http_header header(
+            buffer.get(), make_ts_http_request(buffer.get(), stream->kvblock));
+    if (!header) {
+        return false;
+    }
+
+    debug_http_header(stream->stream_id, buffer.get(), header);
+
+    if (!http_method_is_supported(buffer.get(), header.get())) {
+        http_send_txn_error(stream, TS_HTTP_STATUS_METHOD_NOT_ALLOWED);
+        return true;
+    }
+
+    // For POST requests which may contain a lot of data, we probably need to
+    // do a bunch of work. Looks like the recommended path is:
+    //      TSHttpConnect()
+    //      TSVConnWrite() to send an HTTP request.
+    //      TSVConnRead() to get the HTTP response.
+    //      TSHttpParser to parse the response (if needed).
+
+    TSFetchEvent events = {
+        /* success_event_id */ SPDY_EVENT_HTTP_SUCCESS,
+        /* failure_event_id */ SPDY_EVENT_HTTP_FAILURE,
+        /* timeout_event_id */ SPDY_EVENT_HTTP_TIMEOUT
+    };
+
+    TSHttpHdrPrint(buffer.get(), header, iobuf.buffer);
+    blk = TSIOBufferStart(iobuf.buffer);
+    ptr = (const char *)TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
+
+    // Keep a refcount on the SPDY stream in case the TCP connection drops
+    // while the request is in-flight.
+    TSFetchUrl(ptr, nbytes, addr, contp, AFTER_BODY, events);
+    return true;
+}
+
 static int
 spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
 {
@@ -391,27 +201,27 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
         } else {
             // Experimentally, if the DNS lookup fails, web proxies return 502
             // Bad Gateway.
-            send_http_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
+            http_send_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
         }
 
         break;
 
     case SPDY_EVENT_HTTP_SUCCESS:
-        send_http_txn_result(stream, (TSHttpTxn)edata);
+        http_send_txn_response(stream, (TSHttpTxn)edata);
         stream->io->reenable();
         stream->close();
         break;
 
     case SPDY_EVENT_HTTP_FAILURE:
         debug_http("[%p/%u] HTTP failure event", stream->io, stream->stream_id);
-        send_http_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
+        http_send_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
         stream->io->reenable();
         stream->close();
         break;
 
     case SPDY_EVENT_HTTP_TIMEOUT:
         debug_http("[%p/%u] HTTP timeout event", stream->io, stream->stream_id);
-        send_http_txn_error(stream, TS_HTTP_STATUS_GATEWAY_TIMEOUT);
+        http_send_txn_error(stream, TS_HTTP_STATUS_GATEWAY_TIMEOUT);
         stream->io->reenable();
         stream->close();
         break;

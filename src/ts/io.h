@@ -128,6 +128,8 @@ private:
     T ts;
 };
 
+typedef scoped_ts_object<TSMBuffer, TSMBufferCreate, TSMBufferDestroy> scoped_mbuffer;
+
 template<> std::string stringof<TSEvent>(const TSEvent&);
 
 #endif /* IO_H_C3455D48_1D3C_49C0_BB81_844F4C7946A5 */

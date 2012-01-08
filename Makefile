@@ -29,6 +29,7 @@ LinkBundle = $(CXX) $(LDFLAGS) \
 LinkProgram = $(CXX) $(LDFLAGS) -o $@ $^
 
 Spdy_Objects := \
+	src/ts/http.o \
 	src/ts/io.o \
 	src/ts/protocol.o \
 	src/ts/spdy.o \
