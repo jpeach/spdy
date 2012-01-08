@@ -74,11 +74,6 @@ private:
     TSMBuffer   buffer;
 };
 
-template <> std::string
-stringof<inet_address>(const inet_address& inaddr) {
-    return cstringof(*inaddr.saddr());
-}
-
 static void
 resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
 {

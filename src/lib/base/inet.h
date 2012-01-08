@@ -51,5 +51,10 @@ private:
     } sa;
 };
 
+template <> std::string
+stringof<inet_address>(const inet_address& inaddr) {
+    return cstringof(*inaddr.saddr());
+}
+
 #endif /* INET_H_9452AE2E_D6D2_4B26_AF98_7550DC033E54 */
 /* vim: set sw=4 ts=4 tw=79 et : */
