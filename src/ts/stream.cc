@@ -36,6 +36,7 @@ resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
 
     contp = TSContCreate(spdy_stream_io, TSMutexCreate());
     TSContDataSet(contp, stream);
+    stream->http_state = spdy_io_stream::http_resolve_host;
     retain(stream);
 
     // XXX split the host and port and stash the port in the resulting sockaddr
@@ -129,10 +130,11 @@ initiate_client_request(
         TSCont                  contp)
 
 {
-    scoped_mbuffer      buffer;
-    spdy_io_control::buffered_stream iobuf;
-    int64_t nbytes;
-    const char * ptr;
+    scoped_mbuffer  buffer;
+    spdy_io_buffer  iobuf;
+#if NOTYET
+    int64_t         nbytes;
+    const char *    ptr;
     TSIOBufferBlock blk;
 
     scoped_http_header header(
@@ -144,7 +146,7 @@ initiate_client_request(
     debug_http_header(stream->stream_id, buffer.get(), header);
 
     if (!http_method_is_supported(buffer.get(), header.get())) {
-        http_send_txn_error(stream, TS_HTTP_STATUS_METHOD_NOT_ALLOWED);
+        http_send_error(stream, TS_HTTP_STATUS_METHOD_NOT_ALLOWED);
         return true;
     }
 
@@ -168,6 +170,68 @@ initiate_client_request(
     // Keep a refcount on the SPDY stream in case the TCP connection drops
     // while the request is in-flight.
     TSFetchUrl(ptr, nbytes, addr, contp, AFTER_BODY, events);
+#endif
+
+    TSVConn vconn = TSHttpConnect(addr);
+    if (vconn) {
+        TSVConnRead(vconn, contp, stream->input.buffer, INT64_MAX);
+        TSVConnWrite(vconn, contp, stream->output.reader, INT64_MAX);
+    }
+
+    return true;
+}
+
+static bool
+write_http_request(spdy_io_stream * stream)
+{
+    scoped_mbuffer      buffer;
+    spdy_io_buffer      iobuf;
+    scoped_http_header  header(
+            buffer.get(), make_ts_http_request(buffer.get(), stream->kvblock));
+
+    int64_t             nwritten = 0;
+
+    if (!header) {
+        return false;
+    }
+
+    debug_http_header(stream->stream_id, buffer.get(), header);
+    TSHttpHdrPrint(buffer.get(), header, iobuf.buffer);
+
+    TSIOBufferBlock blk = TSIOBufferReaderStart(iobuf.reader);
+    while (blk) {
+        const char *    ptr;
+        int64_t         nbytes;
+
+        ptr = TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
+        if (ptr == nullptr || nbytes == 0) {
+            goto next;
+        }
+
+        nwritten += TSIOBufferWrite(stream->output.buffer, ptr, nbytes);
+
+next:
+        blk = TSIOBufferBlockNext(blk);
+    }
+
+    // XXX is this needed?
+    TSIOBufferProduce(stream->output.buffer, nwritten);
+    return true;
+}
+
+static bool
+read_http_headers(spdy_io_stream * stream)
+{
+    if (TSIsDebugTagSet("spdy.http")) {
+        debug_http("received %"PRId64" header bytes",
+                TSIOBufferReaderAvail(stream->input.reader));
+    }
+
+    if (stream->hparser.parse(stream->input.reader) < 0) {
+        // XXX handle header parsing error
+        return false;
+    }
+
     return true;
 }
 
@@ -180,7 +244,9 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
     if (!stream->is_open()) {
         debug_protocol("[%p/%u] received %s on closed stream",
                 stream->io, stream->stream_id, cstringof(ev));
-        goto done;
+        release(stream->io);
+        release(stream);
+        return TS_EVENT_NONE;
     }
 
     switch (ev) {
@@ -194,6 +260,9 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
                     stream->kvblock.url().hostport.c_str(), cstringof(addr));
             addr.port() = htons(80); // XXX should be parsed from hostport
             if (initiate_client_request(stream, addr.saddr(), contp)) {
+                stream->http_state =
+                    spdy_io_stream::http_send_request |
+                    spdy_io_stream::http_receive_headers;
                 retain(stream);
                 retain(stream->io);
             }
@@ -201,11 +270,48 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
         } else {
             // Experimentally, if the DNS lookup fails, web proxies return 502
             // Bad Gateway.
-            http_send_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
+            http_send_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
         }
 
+        release(stream->io);
+        release(stream);
+        return TS_EVENT_NONE;
+
+    case TS_EVENT_VCONN_WRITE_READY:
+        if ((stream->http_state & spdy_io_stream::http_send_request) == 0) {
+            debug_http("ignoring %s event", cstringof(ev));
+            return TS_EVENT_NONE;
+        }
+
+        if (write_http_request(stream)) {
+            TSVIO vio = (TSVIO)edata;
+            TSVIOReenable(vio);
+            stream->http_state &= ~spdy_io_stream::http_send_request;
+        }
+
+        return TS_EVENT_NONE;
+
+    case TS_EVENT_VCONN_WRITE_COMPLETE:
+        debug_http("ignoring %s event", cstringof(ev));
+        return TS_EVENT_NONE;
+
+    case TS_EVENT_VCONN_READ_READY:
+    case TS_EVENT_VCONN_READ_COMPLETE:
+        if (!stream->hparser.complete) {
+            read_http_headers(stream);
+        }
+
+        // Parsing the headers might have completed and had more data left
+        // over. If there's any data still buffered we can push it out now.
+        if (stream->hparser.complete) {
+            http_send_response(stream, stream->hparser.mbuffer.get(), stream->hparser.header.get());
+        }
+
+    case TS_EVENT_VCONN_EOS:
+        // XXX Send end of data frame 
         break;
 
+#if NOTYET
     case SPDY_EVENT_HTTP_SUCCESS:
         http_send_txn_response(stream, (TSHttpTxn)edata);
         stream->io->reenable();
@@ -214,30 +320,29 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
 
     case SPDY_EVENT_HTTP_FAILURE:
         debug_http("[%p/%u] HTTP failure event", stream->io, stream->stream_id);
-        http_send_txn_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
+        http_send_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
         stream->io->reenable();
         stream->close();
         break;
 
     case SPDY_EVENT_HTTP_TIMEOUT:
         debug_http("[%p/%u] HTTP timeout event", stream->io, stream->stream_id);
-        http_send_txn_error(stream, TS_HTTP_STATUS_GATEWAY_TIMEOUT);
+        http_send_error(stream, TS_HTTP_STATUS_GATEWAY_TIMEOUT);
         stream->io->reenable();
         stream->close();
         break;
+#endif
 
     default:
         debug_plugin("unexpected stream event %s", cstringof(ev));
     }
 
-done:
-    release(stream->io);
-    release(stream);
     return TS_EVENT_NONE;
 }
 
 spdy_io_stream::spdy_io_stream(unsigned s)
-    : stream_id(s), state(inactive_state), action(nullptr), kvblock()
+    : stream_id(s), state(inactive_state), action(nullptr), kvblock(),
+    io(nullptr), input(), output(), hparser(), http_state(0)
 {
 }
 

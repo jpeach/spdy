@@ -98,7 +98,7 @@ recv_syn_stream(
     if (!kvblock.url().is_complete()) {
         debug_protocol("[%p/%u] incomplete URL", io, stream->stream_id);
         // 3.2.1; missing URL, protocol error; 400 Bad Request
-        http_send_txn_error(stream, TS_HTTP_STATUS_BAD_REQUEST);
+        http_send_error(stream, TS_HTTP_STATUS_BAD_REQUEST);
         spdy_send_reset_stream(io, stream->stream_id, spdy::CANCEL);
         io->destroy_stream(stream->stream_id);
         return;

@@ -23,7 +23,16 @@
 struct inet_address
 {
     explicit inet_address(const struct sockaddr * addr) {
-        memcpy(&sa.storage, addr, addr->sa_len);
+        switch (addr->sa_family) {
+        case AF_INET:
+            memcpy(&sa.storage, addr, sizeof(sockaddr_in));
+            break;
+        case AF_INET6:
+            memcpy(&sa.storage, addr, sizeof(sockaddr_in6));
+            break;
+        default:
+            memset(&sa, 0, sizeof(sa));
+        }
     }
 
     uint16_t& port() {

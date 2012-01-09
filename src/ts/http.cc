@@ -48,8 +48,8 @@ populate_http_headers(
     }
 }
 
-static void
-send_http_response(
+void
+http_send_response(
         spdy_io_stream *    stream,
         TSMBuffer           buffer,
         TSMLoc              header)
@@ -94,7 +94,7 @@ skip:
 }
 
 void
-http_send_txn_error(
+http_send_error(
         spdy_io_stream  *   stream,
         TSHttpStatus        status)
 {
@@ -112,7 +112,7 @@ http_send_txn_error(
             stream->kvblock.url().hostport.c_str(),
             stream->kvblock.url().path.c_str());
 
-    send_http_response(stream, buffer.get(), header.get());
+    http_send_response(stream, buffer.get(), header.get());
     spdy_send_data_frame(stream, spdy::FLAG_FIN, nullptr, 0);
 }
 
@@ -133,7 +133,7 @@ http_send_txn_response(
         return;
     }
 
-    send_http_response(stream, buffer, header);
+    http_send_response(stream, buffer, header);
 #endif
 
     body = TSFetchRespGet(txn, &len);
@@ -154,10 +154,10 @@ debug_http_header(
         TSMLoc      header)
 {
     if (unlikely(TSIsDebugTagSet("spdy.http"))) {
-        spdy_io_control::buffered_stream iobuf;
-        int64_t nbytes;
-        int64_t avail;
-        const char * ptr;
+        spdy_io_buffer  iobuf;
+        int64_t         nbytes;
+        int64_t         avail;
+        const char *    ptr;
         TSIOBufferBlock blk;
 
         TSHttpHdrPrint(buffer, header, iobuf.buffer);
@@ -170,4 +170,52 @@ debug_http_header(
     }
 }
 
+http_parser::http_parser()
+    : parser(TSHttpParserCreate()), mbuffer(), header(mbuffer.get()), complete(false)
+{
+}
+
+http_parser::~http_parser()
+{
+    if (parser) {
+        TSHttpParserDestroy(parser);
+    }
+}
+
+ssize_t http_parser::parse(TSIOBufferReader reader)
+{
+    ssize_t         consumed = 0;
+    TSIOBufferBlock blk;
+
+    blk = TSIOBufferReaderStart(reader);
+    while (blk) {
+        const char *    ptr;
+        const char *    end;
+        int64_t         nbytes;
+        TSParseResult   result;
+
+        ptr = TSIOBufferBlockReadStart(blk, reader, &nbytes);
+        if (ptr == nullptr || nbytes == 0) {
+            goto next;
+        }
+
+        end = ptr + nbytes;
+        result = TSHttpHdrParseResp(parser, mbuffer.get(), header.get(), &ptr, end);
+        switch (result) {
+        case TS_PARSE_ERROR:
+            return (ssize_t)result;
+        case TS_PARSE_DONE:
+        case TS_PARSE_OK:
+            this->complete = true;
+        case TS_PARSE_CONT:
+            // We consumed the buffer we got minus the remainder.
+            consumed += nbytes - std::distance(ptr, end);
+        }
+
+next:
+        blk = TSIOBufferBlockNext(blk);
+    }
+
+    return consumed;
+}
 /* vim: set sw=4 ts=4 tw=79 et : */
