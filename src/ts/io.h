@@ -78,15 +78,17 @@ struct spdy_io_buffer {
 
 struct spdy_io_stream : public countable
 {
-    enum stream_state : unsigned {
+    enum stream_state_type : unsigned {
         inactive_state, open_state, closed_state
     };
 
-    enum : unsigned {
+    enum http_state_type : unsigned {
         http_resolve_host       = 0x0001,
-        http_send_request       = 0x0002,
+        http_send_headers       = 0x0002,
         http_receive_headers    = 0x0004,
-        http_transfer_content   = 0x0008
+        http_send_content       = 0x0008,
+        http_receive_content    = 0x0010,
+        http_closed             = 0x0020
     };
 
     explicit spdy_io_stream(unsigned);
@@ -101,7 +103,8 @@ struct spdy_io_stream : public countable
     bool is_open() const  { return state == open_state; }
 
     unsigned                stream_id;
-    stream_state            state;
+    stream_state_type       state;
+    unsigned                http_state;
     spdy::protocol_version  version;
     TSAction                action;
     spdy::key_value_block   kvblock;
@@ -110,7 +113,6 @@ struct spdy_io_stream : public countable
     spdy_io_buffer          input;
     spdy_io_buffer          output;
     http_parser             hparser;
-    unsigned                http_state;
 
     static spdy_io_stream * get(TSCont contp) {
         return (spdy_io_stream *)TSContDataGet(contp);

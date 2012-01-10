@@ -23,6 +23,7 @@ void http_send_txn_response(spdy_io_stream *, TSHttpTxn);
 
 void http_send_error(spdy_io_stream *, TSHttpStatus);
 void http_send_response(spdy_io_stream *, TSMBuffer, TSMLoc);
+void http_send_content(spdy_io_stream *, TSIOBufferReader);
 
 void debug_http_header(unsigned, TSMBuffer, TSMLoc);
 

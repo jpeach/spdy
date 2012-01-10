@@ -117,6 +117,31 @@ http_send_error(
 }
 
 void
+http_send_content(
+        spdy_io_stream *    stream,
+        TSIOBufferReader    reader)
+{
+    TSIOBufferBlock blk;
+    int64_t         consumed = 0;
+
+    blk = TSIOBufferReaderStart(stream->input.reader);
+    while (blk) {
+        const char *    ptr;
+        int64_t         nbytes;
+
+        ptr = TSIOBufferBlockReadStart(blk, reader, &nbytes);
+        if (ptr && nbytes) {
+            spdy_send_data_frame(stream, 0 /* flags */, ptr, nbytes);
+            consumed += nbytes;
+        }
+
+        blk = TSIOBufferBlockNext(blk);
+    }
+
+    TSIOBufferReaderConsume(reader, consumed);
+}
+
+void
 http_send_txn_response(
         spdy_io_stream  *   stream,
         TSHttpTxn           txn)
@@ -182,7 +207,8 @@ http_parser::~http_parser()
     }
 }
 
-ssize_t http_parser::parse(TSIOBufferReader reader)
+ssize_t
+http_parser::parse(TSIOBufferReader reader)
 {
     ssize_t         consumed = 0;
     TSIOBufferBlock blk;
