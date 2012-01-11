@@ -142,37 +142,6 @@ http_send_content(
 }
 
 void
-http_send_txn_response(
-        spdy_io_stream  *   stream,
-        TSHttpTxn           txn)
-{
-    int         len;
-    char *      body;
-#if NOTYET
-    TSMBuffer   buffer;
-    TSMLoc      header;
-
-    if (TSFetchHdrGet(txn, &buffer, &header) != TS_SUCCESS) {
-        spdy_send_reset_stream(stream->io, stream->stream_id,
-                spdy::PROTOCOL_ERROR);
-        return;
-    }
-
-    http_send_response(stream, buffer, header);
-#endif
-
-    body = TSFetchRespGet(txn, &len);
-    if (body) {
-        debug_http("[%p/%u] body %p is %d bytes", stream->io,
-                stream->stream_id, body, len);
-        spdy_send_data_frame(
-                stream, 0 /*| spdy::FLAG_COMPRESSED*/, body, len);
-    }
-
-    spdy_send_data_frame(stream, spdy::FLAG_FIN, nullptr, 0);
-}
-
-void
 debug_http_header(
         unsigned    stream_id,
         TSMBuffer   buffer,
