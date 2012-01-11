@@ -203,8 +203,8 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
 
     spdy_io_stream * stream = spdy_io_stream::get(contp);
 
-    debug_http("[%p/%u] received %s event",
-            stream->io, stream->stream_id, cstringof(ev));
+    debug_http("[%p/%u] %s received %s event",
+            stream->io, stream->stream_id, __func__, cstringof(ev));
 
     if (!stream->is_open()) {
         debug_protocol("[%p/%u] received %s on closed stream",
@@ -292,9 +292,7 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
 
         // Kick the IO control block write VIO to make it send the
         // SPDY frames we spooled.
-        if (IN(stream, spdy_io_stream::http_receive_content)) {
-            stream->io->reenable();
-        }
+        stream->io->reenable();
 
         if (IN(stream, spdy_io_stream::http_closed)) {
             stream->close();
