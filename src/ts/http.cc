@@ -210,11 +210,11 @@ http_parser::~http_parser()
 ssize_t
 http_parser::parse(TSIOBufferReader reader)
 {
-    ssize_t         consumed = 0;
     TSIOBufferBlock blk;
+    ssize_t         consumed = 0;
 
-    blk = TSIOBufferReaderStart(reader);
-    while (blk) {
+    for (blk = TSIOBufferReaderStart(reader); blk;
+                blk = TSIOBufferBlockNext(blk)) {
         const char *    ptr;
         const char *    end;
         int64_t         nbytes;
@@ -222,7 +222,7 @@ http_parser::parse(TSIOBufferReader reader)
 
         ptr = TSIOBufferBlockReadStart(blk, reader, &nbytes);
         if (ptr == nullptr || nbytes == 0) {
-            goto next;
+            continue;
         }
 
         end = ptr + nbytes;
@@ -235,13 +235,15 @@ http_parser::parse(TSIOBufferReader reader)
             this->complete = true;
         case TS_PARSE_CONT:
             // We consumed the buffer we got minus the remainder.
-            consumed += nbytes - std::distance(ptr, end);
+            consumed += (nbytes - std::distance(ptr, end));
         }
 
-next:
-        blk = TSIOBufferBlockNext(blk);
+        if (this->complete) {
+            break;
+        }
     }
 
+    TSIOBufferReaderConsume(reader, consumed);
     return consumed;
 }
 /* vim: set sw=4 ts=4 tw=79 et : */
