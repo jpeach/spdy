@@ -218,4 +218,78 @@ http_parser::parse(TSIOBufferReader reader)
     return consumed;
 }
 
+static void
+make_ts_http_url(
+        TSMBuffer   buffer,
+        TSMLoc      header,
+        const spdy::key_value_block& kvblock)
+{
+    TSReturnCode    tstatus;
+    TSMLoc          url;
+
+    tstatus = TSHttpHdrUrlGet(buffer, header, &url);
+    if (tstatus == TS_ERROR) {
+        tstatus = TSUrlCreate(buffer, &url);
+    }
+
+    TSUrlSchemeSet(buffer, url,
+            kvblock.url().scheme.data(), kvblock.url().scheme.size());
+    TSUrlHostSet(buffer, url,
+            kvblock.url().hostport.data(), kvblock.url().hostport.size());
+    TSUrlPathSet(buffer, url,
+            kvblock.url().path.data(), kvblock.url().path.size());
+    TSHttpHdrMethodSet(buffer, header,
+            kvblock.url().method.data(), kvblock.url().method.size());
+
+    TSHttpHdrUrlSet(buffer, header, url);
+
+    TSAssert(tstatus == TS_SUCCESS);
+}
+
+static TSMLoc
+make_ts_http_header(
+        TSMBuffer buffer,
+        const spdy::key_value_block& kvblock)
+{
+    scoped_http_header header(buffer);
+
+    TSHttpHdrTypeSet(buffer, header, TS_HTTP_TYPE_REQUEST);
+
+    // XXX extract the real HTTP version header from kvblock.url()
+    TSHttpHdrVersionSet(buffer, header, TS_HTTP_VERSION(1, 1));
+    make_ts_http_url(buffer, header, kvblock);
+
+    // Duplicate the header fields into the MIME header for the HTTP request we
+    // are building.
+    for (auto ptr(kvblock.begin()); ptr != kvblock.end(); ++ptr) {
+        if (ptr->first[0] != ':') {
+            TSMLoc field;
+
+            // XXX Need special handling for duplicate headers; we should
+            // append them as a multi-value
+
+            TSMimeHdrFieldCreateNamed(buffer, header,
+                    ptr->first.c_str(), -1, &field);
+            TSMimeHdrFieldValueStringInsert(buffer, header, field,
+                    -1, ptr->second.c_str(), -1);
+            TSMimeHdrFieldAppend(buffer, header, field);
+        }
+    }
+
+    return header.release();
+}
+
+scoped_http_header::scoped_http_header(
+        TSMBuffer buffer,
+        const spdy::key_value_block& kvblock)
+{
+    this->header = make_ts_http_header(buffer, kvblock);
+}
+
+scoped_http_header::scoped_http_header(TSMBuffer b)
+        : header(TS_NULL_MLOC), buffer(b)
+{
+    header = TSHttpHdrCreate(buffer);
+}
+
 /* vim: set sw=4 ts=4 tw=79 et : */

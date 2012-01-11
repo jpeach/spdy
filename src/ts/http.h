@@ -18,6 +18,7 @@
 #define HTTP_H_E7A06C65_4FCF_46C0_8C97_455BEB9A3DE8
 
 struct spdy_io_stream;
+namespace spdy { struct key_value_block; }
 
 // Send a HTTP error response on the given SPDY stream.
 void http_send_error(spdy_io_stream *, TSHttpStatus);
@@ -32,10 +33,8 @@ void debug_http_header(unsigned, TSMBuffer, TSMLoc);
 
 struct scoped_http_header
 {
-    explicit scoped_http_header(TSMBuffer b)
-            : header(TS_NULL_MLOC), buffer(b) {
-        header = TSHttpHdrCreate(buffer);
-    }
+    explicit scoped_http_header(TSMBuffer b);
+    scoped_http_header(TSMBuffer, const spdy::key_value_block&);
 
     scoped_http_header(TSMBuffer b, TSMLoc h)
             : header(h), buffer(b) {

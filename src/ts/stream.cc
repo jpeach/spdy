@@ -23,7 +23,6 @@
 #include "http.h"
 
 static int spdy_stream_io(TSCont, TSEvent, void *);
-static TSMLoc make_ts_http_request(TSMBuffer, const spdy::key_value_block&);
 
 static bool
 IN(const spdy_io_stream * s, spdy_io_stream::http_state_type h)
@@ -60,73 +59,11 @@ resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
     }
 }
 
-static void
-make_ts_http_url(
-        TSMBuffer   buffer,
-        TSMLoc      header,
-        const spdy::key_value_block& kvblock)
-{
-    TSReturnCode    tstatus;
-    TSMLoc          url;
-
-    tstatus = TSHttpHdrUrlGet(buffer, header, &url);
-    if (tstatus == TS_ERROR) {
-        tstatus = TSUrlCreate(buffer, &url);
-    }
-
-    TSUrlSchemeSet(buffer, url,
-            kvblock.url().scheme.data(), kvblock.url().scheme.size());
-    TSUrlHostSet(buffer, url,
-            kvblock.url().hostport.data(), kvblock.url().hostport.size());
-    TSUrlPathSet(buffer, url,
-            kvblock.url().path.data(), kvblock.url().path.size());
-    TSHttpHdrMethodSet(buffer, header,
-            kvblock.url().method.data(), kvblock.url().method.size());
-
-    TSHttpHdrUrlSet(buffer, header, url);
-
-    TSAssert(tstatus == TS_SUCCESS);
-}
-
-static TSMLoc
-make_ts_http_request(
-        TSMBuffer buffer,
-        const spdy::key_value_block& kvblock)
-{
-    scoped_http_header header(buffer);
-
-    TSHttpHdrTypeSet(buffer, header, TS_HTTP_TYPE_REQUEST);
-
-    // XXX extract the real HTTP version header from kvblock.url()
-    TSHttpHdrVersionSet(buffer, header, TS_HTTP_VERSION(1, 1));
-    make_ts_http_url(buffer, header, kvblock);
-
-    // Duplicate the header fields into the MIME header for the HTTP request we
-    // are building.
-    for (auto ptr(kvblock.begin()); ptr != kvblock.end(); ++ptr) {
-        if (ptr->first[0] != ':') {
-            TSMLoc field;
-
-            // XXX Need special handling for duplicate headers; we should
-            // append them as a multi-value
-
-            TSMimeHdrFieldCreateNamed(buffer, header,
-                    ptr->first.c_str(), -1, &field);
-            TSMimeHdrFieldValueStringInsert(buffer, header, field,
-                    -1, ptr->second.c_str(), -1);
-            TSMimeHdrFieldAppend(buffer, header, field);
-        }
-    }
-
-    return header.release();
-}
-
 static bool
 initiate_client_request(
         spdy_io_stream *        stream,
         const struct sockaddr * addr,
         TSCont                  contp)
-
 {
     TSVConn vconn;
 
@@ -142,11 +79,9 @@ initiate_client_request(
 static bool
 write_http_request(spdy_io_stream * stream)
 {
-    scoped_mbuffer      buffer;
     spdy_io_buffer      iobuf;
-    scoped_http_header  header(
-            buffer.get(), make_ts_http_request(buffer.get(), stream->kvblock));
-
+    scoped_mbuffer      buffer;
+    scoped_http_header  header(buffer.get(), stream->kvblock);
     int64_t             nwritten = 0;
 
     if (!header) {
@@ -154,6 +89,9 @@ write_http_request(spdy_io_stream * stream)
     }
 
     debug_http_header(stream->stream_id, buffer.get(), header);
+
+    // XXX Surely there's a better way to send the HTTP headers than forcing
+    // ATS to reparse what we already have in pre-parsed form?
     TSHttpHdrPrint(buffer.get(), header, iobuf.buffer);
 
     TSIOBufferBlock blk = TSIOBufferReaderStart(iobuf.reader);
