@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// http.cc - Low level routines to write HTTP messages.
+
 #include <ts/ts.h>
 #include <spdy/spdy.h>
 #include <base/logging.h>
@@ -215,4 +217,5 @@ http_parser::parse(TSIOBufferReader reader)
     TSIOBufferReaderConsume(reader, consumed);
     return consumed;
 }
+
 /* vim: set sw=4 ts=4 tw=79 et : */

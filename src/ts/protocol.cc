@@ -14,6 +14,8 @@
  *  limitations under the License.
  */
 
+// protocol.cc - Low level routines to write SPDY frames.
+
 #include <ts/ts.h>
 #include <spdy/spdy.h>
 #include <base/logging.h>

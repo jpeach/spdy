@@ -19,8 +19,13 @@
 
 struct spdy_io_stream;
 
+// Send a HTTP error response on the given SPDY stream.
 void http_send_error(spdy_io_stream *, TSHttpStatus);
+
+// Send a HTTP response (HTTP header + MIME headers).
 void http_send_response(spdy_io_stream *, TSMBuffer, TSMLoc);
+
+// Send a chunk of the HTTP body content.
 void http_send_content(spdy_io_stream *, TSIOBufferReader);
 
 void debug_http_header(unsigned, TSMBuffer, TSMLoc);
