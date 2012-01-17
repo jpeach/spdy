@@ -12,21 +12,19 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-TSROOT := /opt/trafficserver
+TSROOT := /opt/ats
+
 TSXS := $(TSROOT)/bin/tsxs
 SUDO := sudo
-
 CXX := clang++
+
 CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
 LDFLAGS := -stdlib=libc++ -g
+CPPFLAGS := -I$(TSROOT)/include -Isrc/lib
 
-CPPFLAGS := \
-	-I/opt/trafficserver/include \
-	-Isrc/lib
-
-LinkBundle = $(CXX) $(LDFLAGS) \
-	     -bundle -Wl,-bundle_loader,$(TSROOT)/bin/traffic_server -o $@ $^
 LinkProgram = $(CXX) $(LDFLAGS) -o $@ $^
+LinkBundle = $(CXX) $(LDFLAGS) \
+     -bundle -Wl,-bundle_loader,$(TSROOT)/bin/traffic_server -o $@ $^
 
 Spdy_Objects := \
 	src/ts/http.o \
