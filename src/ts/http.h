@@ -48,7 +48,7 @@ struct scoped_http_header
     }
 
     operator bool() const {
-        return header != TS_NULL_MLOC;
+        return buffer != nullptr && header != TS_NULL_MLOC;
     }
 
     operator TSMLoc() const {

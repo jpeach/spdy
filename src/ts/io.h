@@ -28,7 +28,9 @@ struct scoped_ts_object
     }
 
     ~scoped_ts_object() {
-        Destroy(ts);
+        if (ts) {
+            Destroy(ts);
+        }
     }
 
     T get() const {

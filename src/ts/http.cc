@@ -280,8 +280,9 @@ make_ts_http_header(
 }
 
 scoped_http_header::scoped_http_header(
-        TSMBuffer buffer,
+        TSMBuffer b,
         const spdy::key_value_block& kvblock)
+    : buffer(b)
 {
     this->header = make_ts_http_header(buffer, kvblock);
 }
