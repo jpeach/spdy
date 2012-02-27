@@ -13,6 +13,8 @@ chrome()
     done
 }
 
-exec "$(chrome)" --use-spdy=no-ssl --host-resolver-rules="MAP * localhost:9999"
+# --use-spdy=ssl
+# --use-spdy=no-ssl
+exec "$(chrome)" --use-spdy=ssl --host-resolver-rules="MAP * localhost:9999"
 
 # vim: set sw=4 ts=4 et :
