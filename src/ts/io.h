@@ -93,12 +93,17 @@ struct spdy_io_stream : public countable
         http_closed             = 0x0020
     };
 
+    enum open_options : unsigned {
+        open_none = 0x0000,
+        open_with_system_resolver = 0x0001
+    };
+
     explicit spdy_io_stream(unsigned);
     virtual ~spdy_io_stream();
 
     // Move kv into the stream and start processing it. Return true if the
     // stream transitions to open state.
-    bool open(spdy::key_value_block& kv);
+    bool open(spdy::key_value_block&, open_options);
     void close();
 
     bool is_closed() const  { return state == closed_state; }
@@ -109,6 +114,7 @@ struct spdy_io_stream : public countable
     unsigned                http_state;
     spdy::protocol_version  version;
     TSAction                action;
+    TSCont                  continuation;
     spdy::key_value_block   kvblock;
 
     spdy_io_control *       io;

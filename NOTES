@@ -6,13 +6,21 @@ SPDY proxy at localhost:9999:
 
     chrome --use-spdy=no-ssl --host-resolver-rules="MAP * localhost:9999"
 
+
 Installation and oonfiguration
 ==============================
 
 To install, copy spdy.so into the TrafficServer plugins directory and add the
 following to plugin.config, where PORT is the port to listen on:
 
-    spdy.so PORT
+    spdy.so [OPTIONS]
+
+Options:
+    --system-resolver
+    Use the system's DNS resolver instead of the Traffic Server DNS resolver.
+    This has the advantage of being able to resolve Bonjour names and
+    /etc/hosts entries and the disadvantage of being a blocking API that will
+    hold down a Traffic Server thread.
 
 To enable debug, configure the spdy diagnostig tag by adding the follosing to
 recods.config:

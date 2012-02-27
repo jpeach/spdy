@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2011 James Peach
+ *  Copyright (c) 2012 James Peach
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -15,13 +15,16 @@
  */
 
 #include <ts/ts.h>
-#include <stdlib.h>
 #include <spdy/spdy.h>
 #include <base/logging.h>
 
 #include "io.h"
 #include "http.h"
 #include "protocol.h"
+
+#include <getopt.h>
+
+static bool use_system_resolver = false;
 
 static int spdy_vconn_io(TSCont, TSEvent, void *);
 
@@ -104,7 +107,9 @@ recv_syn_stream(
         return;
     }
 
-    stream->open(kvblock);
+    stream->open(kvblock,
+        use_system_resolver ? spdy_io_stream::open_with_system_resolver
+                            : spdy_io_stream::open_none);
 }
 
 static void
@@ -326,23 +331,14 @@ spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
     return TS_EVENT_NONE;
 }
 
-static void
-spdy_initialize(uint16_t port)
+extern "C" void
+TSPluginInit(int argc, const char * argv[])
 {
-    TSCont    contp;
-    TSAction  action;
+    static const struct option longopts[] = {
+        { "system-resolver", no_argument, NULL, 's' },
+        { NULL, 0, NULL, 0 }
+    };
 
-    contp = TSContCreate(spdy_accept_io, TSMutexCreate());
-    action = TSNetAccept(contp, port, -1 /* domain */, 1 /* accept threads */);
-    if (TSActionDone(action)) {
-        debug_plugin("accept action done?");
-    }
-}
-
-void
-TSPluginInit(int argc, const char *argv[])
-{
-    int port;
     TSPluginRegistrationInfo info;
 
     info.plugin_name = (char *)"spdy";
@@ -350,23 +346,30 @@ TSPluginInit(int argc, const char *argv[])
     info.support_email = (char *)"jamespeach@me.com";
 
     if (TSPluginRegister(TS_SDK_VERSION_3_0, &info) != TS_SUCCESS) {
-        TSError("[%s] Plugin registration failed", __func__);
+        TSError("[spdy] Plugin registration failed");
     }
 
     debug_plugin("initializing");
 
-    if (argc != 2) {
-        TSError("[%s] Usage: spdy.so PORT", __func__);
-        return;
+    for (;;) {
+        switch (getopt_long(argc, (char * const *)argv, "s", longopts, NULL)) {
+        case 's':
+            use_system_resolver = true;
+            break;
+        case -1:
+            goto init;
+        default:
+            TSError("[spdy] usage: spdy.so [--system-resolver]");
+        }
     }
 
-    port = atoi(argv[1]);
-    if (port <= 1 || port > UINT16_MAX) {
-        TSError("[%s] invalid port number: %s", __func__, argv[1]);
-        return;
-    }
+init:
+    TSReleaseAssert(
+        TSNetAcceptNamedProtocol(TSContCreate(spdy_accept_io, TSMutexCreate()),
+        TS_NPN_PROTOCOL_SPDY_2) == TS_SUCCESS);
 
-    spdy_initialize((uint16_t)port);
+    debug_plugin("registered named protocol endpoint for %s",
+            TS_NPN_PROTOCOL_SPDY_2);
 }
 
 /* vim: set sw=4 tw=79 ts=4 et ai : */

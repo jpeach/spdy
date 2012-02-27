@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011 James Peach
+ * Copyright (c) 2012 James Peach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,8 @@
 #include "protocol.h"
 #include "http.h"
 
+#include <netdb.h>
+
 static int spdy_stream_io(TSCont, TSEvent, void *);
 
 static bool
@@ -40,23 +42,6 @@ static void
 LEAVE(spdy_io_stream * s, spdy_io_stream::http_state_type h)
 {
     s->http_state &= ~h;
-}
-
-static void
-resolve_host_name(spdy_io_stream * stream, const std::string& hostname)
-{
-    TSCont contp;
-
-    contp = TSContCreate(spdy_stream_io, TSMutexCreate());
-    TSContDataSet(contp, stream);
-    stream->http_state = spdy_io_stream::http_resolve_host;
-    retain(stream);
-
-    // XXX split the host and port and stash the port in the resulting sockaddr
-    stream->action = TSHostLookup(contp, hostname.c_str(), hostname.size());
-    if (TSActionDone(stream->action)) {
-        stream->action = NULL;
-    }
 }
 
 static bool
@@ -245,10 +230,61 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
     return TS_EVENT_NONE;
 }
 
-spdy_io_stream::spdy_io_stream(unsigned s)
-    : stream_id(s), state(inactive_state), http_state(0), action(nullptr),
-    kvblock(), io(nullptr), input(), output(), hparser()
+static void
+block_and_resolve_host(
+        spdy_io_stream * stream,
+        const std::string& hostport)
 {
+    int error;
+    struct addrinfo * res0 = NULL;
+
+    // XXX split the host and port and stash the port in the resulting sockaddr
+    error = getaddrinfo(hostport.c_str(), "80", NULL, &res0);
+    if (error != 0) {
+        debug_http("failed to resolve hostname '%s', %s",
+                hostport.c_str(), gai_strerror(error));
+        http_send_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
+        // XXX What happens to the ref count here?
+
+        return;
+    }
+
+    inet_address addr(res0->ai_addr);
+
+    debug_http("[%p/%u] resolved %s => %s",
+            stream->io, stream->stream_id,
+            hostport.c_str(), cstringof(addr));
+    addr.port() = htons(80); // XXX should be parsed from hostport
+
+    if (initiate_client_request(stream, addr.saddr(), stream->continuation)) {
+        ENTER(stream, spdy_io_stream::http_send_headers);
+        retain(stream);
+        retain(stream->io);
+    }
+
+    freeaddrinfo(res0);
+}
+
+static void
+initiate_host_resolution(
+        spdy_io_stream * stream,
+        const std::string& hostport)
+{
+    // XXX split the host and port and stash the port in the resulting sockaddr
+    stream->action = TSHostLookup(stream->continuation, hostport.c_str(), hostport.size());
+    if (TSActionDone(stream->action)) {
+        stream->action = NULL;
+    }
+    debug_http("resolving hostname '%s'", hostport.c_str());
+}
+
+spdy_io_stream::spdy_io_stream(unsigned s)
+    : stream_id(s), state(inactive_state), http_state(0),
+    action(nullptr), continuation(nullptr), kvblock(), io(nullptr),
+    input(), output(), hparser()
+{
+    this->continuation = TSContCreate(spdy_stream_io, TSMutexCreate());
+    TSContDataSet(this->continuation, this);
 }
 
 spdy_io_stream::~spdy_io_stream()
@@ -271,15 +307,28 @@ spdy_io_stream::close()
 }
 
 bool
-spdy_io_stream::open(spdy::key_value_block& kv)
+spdy_io_stream::open(
+        spdy::key_value_block& kv,
+        open_options options)
 {
+    TSReleaseAssert(this->io != nullptr);
+
     if (state == inactive_state) {
         // Make sure we keep a refcount on our enclosing control block so that
         // it stays live as long as we do.
         retain(this->io);
+        retain(this);
+
         this->kvblock = kv;
         this->state = open_state;
-        resolve_host_name(this, kvblock.url().hostport);
+
+        ENTER(this, spdy_io_stream::http_resolve_host);
+        if (options & open_with_system_resolver) {
+            block_and_resolve_host(this, kvblock.url().hostport);
+        } else {
+            initiate_host_resolution(this, kvblock.url().hostport);
+        }
+
         return true;
     }
 
