@@ -224,7 +224,7 @@ next_frame:
                 header.control.version, spdy::PROTOCOL_VERSION);
         }
     } else {
-        debug_protocol("[%p] SPDY data frame, stream=%u flags=0x%x, %zu bytes",
+        debug_protocol("[%p] SPDY data frame, stream=%u flags=0x%x, %u bytes",
             io, header.data.stream_id, header.flags, header.datalen);
     }
 
