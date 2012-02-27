@@ -49,13 +49,6 @@ insert_stream_id(uint32_t stream_id, uint8_t __restrict * &ptr)
     insert<uint32_t>(htonl(stream_id & 0x7fffffffu), ptr);
 }
 
-// XXX 16 bits in SPDYv2, but 32bits in SPDYv3
-static inline uint16_t
-extract_string_length(const uint8_t __restrict * &ptr)
-{
-    return ntohs(extract<uint16_t>(ptr));
-}
-
 spdy::message_header
 spdy::message_header::parse(
         const uint8_t __restrict * ptr, size_t len)
@@ -313,7 +306,6 @@ parse_name_value_pairs_v2(
         const uint8_t __restrict * ptr, size_t len)
 {
     int32_t npairs;
-    int32_t namelen;
     const uint8_t __restrict * end = ptr + len;
 
     spdy::key_value_block kvblock;
@@ -336,7 +328,7 @@ parse_name_value_pairs_v2(
             // XXX
         }
 
-        nbytes = extract_string_length(ptr);
+        nbytes = ntohs(extract<uint16_t>(ptr));
         if (std::distance(ptr, end) < nbytes) {
             // XXX
         }
@@ -344,8 +336,8 @@ parse_name_value_pairs_v2(
         key.assign((const char *)ptr, nbytes);
         std::advance(ptr, nbytes);
 
-        nbytes = extract_string_length(ptr);
-        if (std::distance(ptr, end) < namelen) {
+        nbytes = ntohs(extract<uint16_t>(ptr));
+        if (std::distance(ptr, end) < nbytes) {
             // XXX
         }
 
