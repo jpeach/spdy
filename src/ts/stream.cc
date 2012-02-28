@@ -24,6 +24,20 @@
 
 #include <netdb.h>
 
+// NOTE: Reference counting SPDY streams.
+//
+// First, the primary protocol handler owns a reference count on each
+// SPDY stream. However, this reference count can be released at almost
+// any time when a RST request is received. So when we submit a request
+// that for any asynchronous processing, we must hold an additional
+// reference count in order to keep the stream alive until the request
+// completes.
+//
+// Second, each stream keeps a reference to the SPDY IO control block
+// which has an independent lifetime. This means that when we keep the
+// stream alive (by taking a reference count), we also need to take a
+// reference on the control block.
+
 static int spdy_stream_io(TSCont, TSEvent, void *);
 
 static bool
@@ -231,7 +245,7 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
     return TS_EVENT_NONE;
 }
 
-static void
+static bool
 block_and_resolve_host(
         spdy_io_stream * stream,
         const std::string& hostport)
@@ -245,12 +259,12 @@ block_and_resolve_host(
         debug_http("failed to resolve hostname '%s', %s",
                 hostport.c_str(), gai_strerror(error));
         http_send_error(stream, TS_HTTP_STATUS_BAD_GATEWAY);
-        // XXX What happens to the ref count here?
-
-        return;
+        return false;
     }
 
     inet_address addr(res0->ai_addr);
+
+    freeaddrinfo(res0);
 
     debug_http("[%p/%u] resolved %s => %s",
             stream, stream->stream_id,
@@ -259,14 +273,13 @@ block_and_resolve_host(
 
     if (initiate_client_request(stream, addr.saddr(), stream->continuation)) {
         ENTER(stream, spdy_io_stream::http_send_headers);
-        retain(stream);
-        retain(stream->io);
+        return true;
     }
 
-    freeaddrinfo(res0);
+    return false;
 }
 
-static void
+static bool
 initiate_host_resolution(
         spdy_io_stream * stream,
         const std::string& hostport)
@@ -276,7 +289,9 @@ initiate_host_resolution(
     if (TSActionDone(stream->action)) {
         stream->action = NULL;
     }
+
     debug_http("resolving hostname '%s'", hostport.c_str());
+    return true;
 }
 
 spdy_io_stream::spdy_io_stream(unsigned s)
@@ -315,22 +330,26 @@ spdy_io_stream::open(
     TSReleaseAssert(this->io != nullptr);
 
     if (state == inactive_state) {
-        // Make sure we keep a refcount on our enclosing control block so that
-        // it stays live as long as we do.
-        retain(this->io);
-        retain(this);
-
         this->kvblock = kv;
         this->state = open_state;
 
+        retain(this);
+        retain(this->io);
+
         ENTER(this, spdy_io_stream::http_resolve_host);
-        if (options & open_with_system_resolver) {
-            block_and_resolve_host(this, kvblock.url().hostport);
-        } else {
-            initiate_host_resolution(this, kvblock.url().hostport);
+        bool success = (options & open_with_system_resolver)
+            ? block_and_resolve_host(this, kvblock.url().hostport)
+            : initiate_host_resolution(this, kvblock.url().hostport);
+
+        if (!success) {
+            release(this);
+            release(this->io);
         }
 
-        return true;
+        // On the success path, the resulting continuation callback will
+        // release the refcount we are holding.
+
+        return success;
     }
 
     return false;

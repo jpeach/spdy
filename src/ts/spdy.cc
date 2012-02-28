@@ -107,9 +107,14 @@ recv_syn_stream(
         return;
     }
 
-    stream->open(kvblock,
-        use_system_resolver ? spdy_io_stream::open_with_system_resolver
-                            : spdy_io_stream::open_none);
+    spdy_io_stream::open_options options = spdy_io_stream::open_none;
+    if (use_system_resolver) {
+        options = spdy_io_stream::open_with_system_resolver;
+    }
+
+    if (!stream->open(kvblock, options)) {
+        io->destroy_stream(stream->stream_id);
+    }
 }
 
 static void

@@ -22,6 +22,7 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <functional>
 #include <string.h>
 #include <arpa/inet.h>
 
@@ -443,6 +444,28 @@ spdy::key_value_block::nbytes(protocol_version version) const
     }
 
     return nbytes;
+}
+
+struct lowercase : public std::unary_function<char, char>
+{
+    char operator() (char c) const {
+        // Return the lowercase ASCII only if it's in the uppercase
+        // ASCII range.
+        if (c > 0x40 && c < 0x5b) {
+            return c + 0x20;
+        }
+
+        return c;
+    }
+};
+
+void
+spdy::key_value_block::insert(
+        std::string key,
+        std::string value)
+{
+    std::transform(key.begin(), key.end(), key.begin(), lowercase());
+    headers[key] = value;
 }
 
 spdy::ping_message

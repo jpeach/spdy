@@ -245,6 +245,9 @@ namespace spdy {
             return headers.find(key) != headers.end();
         }
 
+        // Insert the lower-cased key.
+        void insert(std::string key, std::string value);
+
         std::string& operator[] (const std::string& key) {
             return headers[key];
         }

@@ -69,8 +69,13 @@ http_send_response(
 
         name.first = TSMimeHdrFieldNameGet(buffer, header, field, &name.second);
 
-        // The Connection, Keep-Alive, Proxy-Connection, and Transfer-Encoding
-        // headers are not valid and MUST not be sent.
+        // XXX zwoop says that pointer comparisons ought to be
+        // sufficient here. If we can test and confirm, we can
+        // remove all the strcmp()s.
+
+        //The Connection, Keep-Alive, Proxy-Connection, and
+        //Transfer-Encoding headers are not valid and MUST not be
+        //sent.
         if (strcmp(name.first, TS_MIME_FIELD_CONNECTION) == 0 ||
                 strcmp(name.first, TS_MIME_FIELD_KEEP_ALIVE) == 0 ||
                 strcmp(name.first, TS_MIME_FIELD_PROXY_CONNECTION) == 0 ||
@@ -82,8 +87,8 @@ http_send_response(
 
         value.first = TSMimeHdrFieldValueStringGet(buffer, header,
                 field, 0, &value.second);
-        kvblock[std::string(name.first, name.second)] =
-                std::string(value.first, value.second);
+        kvblock.insert(std::string(name.first, name.second),
+                std::string(value.first, value.second));
 
 skip:
        next = TSMimeHdrFieldNext(buffer, header, field);
