@@ -59,7 +59,7 @@ http_send_response(
     TSMLoc      field;
     spdy::key_value_block kvblock;
 
-    debug_http_header(stream->stream_id, buffer, header);
+    debug_http_header(stream, buffer, header);
 
     field = TSMimeHdrFieldGet(buffer, header, 0);
     while (field) {
@@ -145,9 +145,9 @@ http_send_content(
 
 void
 debug_http_header(
-        unsigned    stream_id,
-        TSMBuffer   buffer,
-        TSMLoc      header)
+        const spdy_io_stream *  stream,
+        TSMBuffer               buffer,
+        TSMLoc                  header)
 {
     if (unlikely(TSIsDebugTagSet("spdy.http"))) {
         spdy_io_buffer  iobuf;
@@ -161,8 +161,10 @@ debug_http_header(
         avail = TSIOBufferBlockReadAvail(blk, iobuf.reader);
         ptr = (const char *)TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
 
-        debug_http("[%u] http request (%"PRIu64" of %"PRIu64" bytes):\n%*.*s",
-                stream_id, nbytes, avail, (int)nbytes, (int)nbytes, ptr);
+        debug_http(
+            "[%p/%u] http request (%"PRIu64" of %"PRIu64" bytes):\n%*.*s",
+            stream, stream->stream_id, nbytes, avail,
+            (int)nbytes, (int)nbytes, ptr);
     }
 }
 

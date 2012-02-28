@@ -73,7 +73,7 @@ write_http_request(spdy_io_stream * stream)
         return false;
     }
 
-    debug_http_header(stream->stream_id, buffer.get(), header);
+    debug_http_header(stream, buffer.get(), header);
 
     // XXX Surely there's a better way to send the HTTP headers than forcing
     // ATS to reparse what we already have in pre-parsed form?
@@ -104,7 +104,8 @@ static bool
 read_http_headers(spdy_io_stream * stream)
 {
     if (TSIsDebugTagSet("spdy.http")) {
-        debug_http("received %"PRId64" header bytes",
+        debug_http("[%p/%u] received %"PRId64" header bytes",
+                stream, stream->stream_id,
                 TSIOBufferReaderAvail(stream->input.reader));
     }
 
@@ -126,8 +127,8 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
 
     spdy_io_stream * stream = spdy_io_stream::get(contp);
 
-    debug_http("[%p/%u] %s received %s event",
-            stream->io, stream->stream_id, __func__, cstringof(ev));
+    debug_http("[%p/%u] received %s event",
+            stream, stream->stream_id, cstringof(ev));
 
     if (!stream->is_open()) {
         debug_protocol("[%p/%u] received %s on closed stream",
@@ -252,7 +253,7 @@ block_and_resolve_host(
     inet_address addr(res0->ai_addr);
 
     debug_http("[%p/%u] resolved %s => %s",
-            stream->io, stream->stream_id,
+            stream, stream->stream_id,
             hostport.c_str(), cstringof(addr));
     addr.port() = htons(80); // XXX should be parsed from hostport
 

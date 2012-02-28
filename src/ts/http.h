@@ -29,7 +29,7 @@ void http_send_response(spdy_io_stream *, TSMBuffer, TSMLoc);
 // Send a chunk of the HTTP body content.
 void http_send_content(spdy_io_stream *, TSIOBufferReader);
 
-void debug_http_header(unsigned, TSMBuffer, TSMLoc);
+void debug_http_header(const spdy_io_stream *, TSMBuffer, TSMLoc);
 
 struct scoped_http_header
 {
