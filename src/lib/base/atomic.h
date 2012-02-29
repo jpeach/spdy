@@ -38,17 +38,11 @@ private:
 };
 
 template <typename T> T * retain(T * ptr) {
-#if defined DEBUG_REFCOUNTING
-    fprintf(stderr, "retain(%p) -> %d\n", ptr, ptr->refcnt + 1);
-#endif
     atomic_increment(ptr->refcnt, 1);
     return ptr;
 }
 
 template <typename T> void release(T * ptr) {
-#if defined DEBUG_REFCOUNTING
-    fprintf(stderr, "release(%p) -> %d\n", ptr, ptr->refcnt - 1);
-#endif
     if (atomic_decrement(ptr->refcnt, 1) == 0) {
         delete ptr;
     }
