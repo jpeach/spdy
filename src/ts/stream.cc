@@ -64,12 +64,12 @@ initiate_client_request(
         const struct sockaddr * addr,
         TSCont                  contp)
 {
-    TSVConn vconn;
+    TSReleaseAssert(stream->vconn == nullptr);
 
-    vconn = TSHttpConnect(addr);
-    if (vconn) {
-        TSVConnRead(vconn, contp, stream->input.buffer, INT64_MAX);
-        TSVConnWrite(vconn, contp, stream->output.reader, INT64_MAX);
+    stream->vconn = TSHttpConnect(addr);
+    if (stream->vconn) {
+        TSVConnRead(stream->vconn, contp, stream->input.buffer, INT64_MAX);
+        TSVConnWrite(stream->vconn, contp, stream->output.reader, INT64_MAX);
     }
 
     return true;
@@ -152,6 +152,8 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
         return TS_EVENT_NONE;
     }
 
+    spdy_io_stream::lock_type::scoped_lock lock(stream->mutex);
+
     switch (ev) {
     case TS_EVENT_HOST_LOOKUP:
         context.dns = (TSHostLookupResult)edata;
@@ -226,6 +228,7 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
         if (ev == TS_EVENT_VCONN_EOS || ev == TS_EVENT_VCONN_READ_COMPLETE) {
             stream->http_state = spdy_io_stream::http_closed;
             spdy_send_data_frame(stream, spdy::FLAG_FIN, nullptr, 0);
+            TSVConnClose(stream->vconn);
         }
 
         // Kick the IO control block write VIO to make it send the
@@ -295,8 +298,8 @@ initiate_host_resolution(
 }
 
 spdy_io_stream::spdy_io_stream(unsigned s)
-    : stream_id(s), state(inactive_state), http_state(0),
-    action(nullptr), continuation(nullptr), kvblock(), io(nullptr),
+    : stream_id(s), http_state(0), action(nullptr), vconn(nullptr),
+    continuation(nullptr), kvblock(), io(nullptr),
     input(), output(), hparser()
 {
     this->continuation = TSContCreate(spdy_stream_io, TSMutexCreate());
@@ -305,8 +308,11 @@ spdy_io_stream::spdy_io_stream(unsigned s)
 
 spdy_io_stream::~spdy_io_stream()
 {
-    if (this->action) {
-        TSActionCancel(this->action);
+    TSReleaseAssert(this->action == nullptr);
+    TSReleaseAssert(this->vconn == nullptr);
+
+    if (this->continuation) {
+        TSContDestroy(this->continuation);
     }
 }
 
@@ -318,7 +324,11 @@ spdy_io_stream::close()
         this->action = nullptr;
     }
 
-    this->state = closed_state;
+    if (this->vconn) {
+        TSVConnClose(this->vconn);
+        this->action = nullptr;
+    }
+
     this->http_state = http_closed;
 }
 
@@ -329,9 +339,8 @@ spdy_io_stream::open(
 {
     TSReleaseAssert(this->io != nullptr);
 
-    if (state == inactive_state) {
+    if (this->is_closed()) {
         this->kvblock = kv;
-        this->state = open_state;
 
         retain(this);
         retain(this->io);

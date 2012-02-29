@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011 James Peach
+ * Copyright (c) 2012 James Peach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -75,6 +75,7 @@ spdy_io_control::destroy_stream(unsigned stream_id)
 {
     stream_map_type::iterator ptr(streams.find(stream_id));
     if (ptr != streams.end()) {
+        spdy_io_stream::lock_type::scoped_lock lock(ptr->second->mutex);
         release(ptr->second);
         streams.erase(ptr);
     }

@@ -18,7 +18,7 @@ TSXS := $(TSROOT)/bin/tsxs
 SUDO := sudo
 CXX := clang++
 
-CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
+CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra -O0 -DDEBUG_REFCOUNTING
 LDFLAGS := -stdlib=libc++ -g
 CPPFLAGS := -I$(TSROOT)/include -Isrc/lib
 

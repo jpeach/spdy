@@ -112,6 +112,7 @@ recv_syn_stream(
         options = spdy_io_stream::open_with_system_resolver;
     }
 
+    spdy_io_stream::lock_type::scoped_lock lock(stream->mutex);
     if (!stream->open(kvblock, options)) {
         io->destroy_stream(stream->stream_id);
     }

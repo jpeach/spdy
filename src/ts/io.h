@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011 James Peach
+ * Copyright (c) 2012 James Peach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -80,10 +80,6 @@ struct spdy_io_buffer {
 
 struct spdy_io_stream : public countable
 {
-    enum stream_state_type : unsigned {
-        inactive_state, open_state, closed_state
-    };
-
     enum http_state_type : unsigned {
         http_resolve_host       = 0x0001,
         http_send_headers       = 0x0002,
@@ -106,14 +102,21 @@ struct spdy_io_stream : public countable
     bool open(spdy::key_value_block&, open_options);
     void close();
 
-    bool is_closed() const  { return state == closed_state; }
-    bool is_open() const  { return state == open_state; }
+    bool is_closed() const  { return !this->is_open(); }
+    bool is_open() const  { return this->action || this->vconn; }
+
+    typedef mutex lock_type;
 
     unsigned                stream_id;
-    stream_state_type       state;
     unsigned                http_state;
+
+    // NOTE: The caller *must* hold the stream lock when calling open() or
+    // close(), or processing any stream events.
+    lock_type               mutex;
+
     spdy::protocol_version  version;
     TSAction                action;
+    TSVConn                 vconn;
     TSCont                  continuation;
     spdy::key_value_block   kvblock;
 
