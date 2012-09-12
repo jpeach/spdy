@@ -6,7 +6,7 @@ Server](http://trafficserver.apache.org). This plugin implements
 the SPDY/2 protocol and transforms incoming SPDY client requests
 to HTTP/1.1 origin server requests.
 
-Installation and oonfiguration
+Installation and Configuration
 ==============================
 
 To install, copy spdy.so into the TrafficServer plugins directory and add the
@@ -15,11 +15,12 @@ following to plugin.config, where PORT is the port to listen on:
     spdy.so [OPTIONS]
 
 Options:
-    --system-resolver
-    Use the system's DNS resolver instead of the Traffic Server DNS resolver.
-    This has the advantage of being able to resolve Bonjour names and
-    /etc/hosts entries and the disadvantage of being a blocking API that will
-    hold down a Traffic Server thread.
+
+    *--system-resolver*
+    > Use the system's DNS resolver instead of the Traffic Server DNS resolver.
+    > This has the advantage of being able to resolve Bonjour names and
+    > /etc/hosts entries and the disadvantage of being a blocking API that will
+    > hold down a Traffic Server thread.
 
 To enable debug, configure the spdy diagnostig tag by adding the follosing to
 recods.config:
