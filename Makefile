@@ -16,7 +16,7 @@ TSROOT := /opt/ats
 
 TSXS := $(TSROOT)/bin/tsxs
 SUDO := sudo
-CXX := clang++
+CXX := xcrun clang++
 
 CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
 LDFLAGS := -stdlib=libc++ -g
