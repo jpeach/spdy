@@ -16,11 +16,10 @@ following to plugin.config, where PORT is the port to listen on:
 
 Options:
 
-    *--system-resolver*
-    > Use the system's DNS resolver instead of the Traffic Server DNS resolver.
-    > This has the advantage of being able to resolve Bonjour names and
-    > /etc/hosts entries and the disadvantage of being a blocking API that will
-    > hold down a Traffic Server thread.
+* _--system-resolver:_ Use the system's DNS resolver instead of the
+  Traffic Server DNS resolver.  This has the advantage of being able
+  to resolve Bonjour names and /etc/hosts entries and the disadvantage
+  of being a blocking API that will hold down a Traffic Server thread.
 
 To enable debug, configure the spdy diagnostig tag by adding the follosing to
 recods.config:
@@ -28,9 +27,10 @@ recods.config:
     CONFIG proxy.config.diags.debug.tags STRING spdy.*
 
 Valid SPDY debugging tags are:
-    spdy.protocol   - SPDY protocol logging
-    spdy.plugin     - SPDY plugin lifecycle
-    spdy.http       - HTTP client request processing
+
+* _spdy.protocol:_SPDY protocol logging
+* _spdy.plugin:_ SPDY plugin lifecycle
+* _spdy.http:_ HTTP client request processing
 
 HTTP Semantics
 ==============
