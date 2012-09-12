@@ -15,9 +15,9 @@ and add the following to plugin.config:
     spdy.so [OPTIONS]
 
 The SPDY plugin will automatically listen on the SPDY/2 NPN endpoint
-for all configure SSL ports. I used to have some code to listen on
-an arbitrry non-SSL port, which is useful for debugging. It's pretty
-easy to add that back in and I'll probably do that.
+for all configure SSL ports. I used to have an option in there to
+listen on an arbitrary non-SSL port, which is useful for debugging.
+It's pretty easy to add that back in and I'll probably do that.
 
 Options:
 
@@ -37,11 +37,16 @@ Valid SPDY debugging tags are:
 * _spdy.plugin:_ SPDY plugin lifecycle
 * _spdy.http:_ HTTP client request processing
 
-SPDY Version Support
-====================
+Plugin Status
+=============
 
 The plugin implements SPDY/2. It's unlikely to ever support SPDY/3, but
 probably I'll get around to SPDY/4 at some point.
+
+This has only every been built and tested on Mac OS X. It compiles
+and basically works for me, but there's a lot of rough edges and
+it needs a good kicking before going into production. That said,
+patches are gleefully accepted.
 
 HTTP Semantics
 ==============
@@ -58,8 +63,8 @@ redirections.
 Testing with Google Chrome
 ==========================
 
-Use the following command-line to have Chrome proxy all requests through the
-SPDY proxy at localhost:9999:
+Use the following command-line to have Chrome proxy all requests
+through the SPDY proxy at localhost:9999:
 
     chrome --use-spdy=no-ssl --host-resolver-rules="MAP * localhost:9999"
 
