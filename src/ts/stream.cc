@@ -153,7 +153,7 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
         return TS_EVENT_NONE;
     }
 
-    spdy_io_stream::lock_type::scoped_lock lock(stream->lock);
+    std::lock_guard<spdy_io_stream::lock_type> lk(stream->lock);
 
     switch (ev) {
     case TS_EVENT_HOST_LOOKUP:

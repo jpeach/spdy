@@ -17,7 +17,8 @@
 #ifndef ATOMIC_H_A14B912F_B134_4D38_8EC1_51C50EC0FBE6
 #define ATOMIC_H_A14B912F_B134_4D38_8EC1_51C50EC0FBE6
 
-#include <pthread.h>
+#include <mutex>
+#include <thread>
 
 // Increment @val by @amt, returning the previous value.
 #define atomic_increment(val, amt) __sync_fetch_and_add(&(val), amt)
@@ -47,35 +48,6 @@ template <typename T> void release(T * ptr) {
         delete ptr;
     }
 }
-
-template <typename LockType>
-struct scoped_lock_type
-{
-    scoped_lock_type(LockType& l) : lock(l) { lock.lock(); }
-    ~scoped_lock_type() { lock.unlock(); }
-
-private:
-    LockType& lock;
-};
-
-struct mutex
-{
-    mutex() {
-        pthread_mutex_init(&this->mtx, nullptr);
-    }
-
-    ~mutex() {
-        pthread_mutex_destroy(&this->mtx);
-    }
-
-    void lock()     { pthread_mutex_lock(&this->mtx); }
-    void unlock()   { pthread_mutex_unlock(&this->mtx); }
-
-    typedef scoped_lock_type<struct mutex> scoped_lock;
-
-private:
-    pthread_mutex_t mtx;
-};
 
 #endif /* ATOMIC_H_A14B912F_B134_4D38_8EC1_51C50EC0FBE6 */
 /* vim: set sw=4 ts=4 tw=79 et : */

@@ -105,7 +105,7 @@ struct spdy_io_stream : public countable
     bool is_closed() const  { return !this->is_open(); }
     bool is_open() const  { return this->action || this->vconn; }
 
-    typedef mutex lock_type;
+    typedef std::mutex lock_type;
 
     unsigned                stream_id;
     unsigned                http_state;

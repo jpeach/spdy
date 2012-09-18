@@ -76,7 +76,7 @@ spdy_io_control::destroy_stream(unsigned stream_id)
 {
     stream_map_type::iterator ptr(streams.find(stream_id));
     if (ptr != streams.end()) {
-        spdy_io_stream::lock_type::scoped_lock lock(ptr->second->lock);
+        std::lock_guard<spdy_io_stream::lock_type> lk(ptr->second->lock);
         release(ptr->second);
         streams.erase(ptr);
     }
