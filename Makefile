@@ -17,19 +17,21 @@ PLATFORM := $(shell uname)
 TSXS := $(TSROOT)/bin/tsxs
 SUDO := sudo
 
+CPPFLAGS := -D__STDC_FORMAT_MACROS=1 -I$(TSROOT)/include -Isrc/lib
+CXXFLAGS := -std=c++11 -g -Wall -Wextra
+
 ifeq ($(PLATFORM),Linux)
 CXX := g++-4.7
-CXXFLAGS := -std=c++11 -g -Wall -Wextra \
+CXXFLAGS += \
 	-fpic \
 	-Wno-unused-but-set-variable
 LDFLAGS = -fpic
 else ifeq ($(PLATFORM),Darwin)
 CXX := xcrun clang++
-CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
+CXXFLAGS += \
+	-stdlib=libc++
 LDFLAGS := -stdlib=libc++ -g
 endif
-
-CPPFLAGS := -D__STDC_FORMAT_MACROS=1 -I$(TSROOT)/include -Isrc/lib
 
 LinkProgram = $(CXX) $(LDFLAGS) -o $@ $^
 LinkBundle = $(CXX) $(LDFLAGS) \
