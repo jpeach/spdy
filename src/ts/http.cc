@@ -167,7 +167,7 @@ debug_http_header(
         ptr = (const char *)TSIOBufferBlockReadStart(blk, iobuf.reader, &nbytes);
 
         debug_http(
-            "[%p/%u] http request (%"PRIu64" of %"PRIu64" bytes):\n%*.*s",
+            "[%p/%u] http request (%" PRIu64 " of %" PRIu64 " bytes):\n%*.*s",
             stream, stream->stream_id, nbytes, avail,
             (int)nbytes, (int)nbytes, ptr);
     }

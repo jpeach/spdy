@@ -23,6 +23,7 @@
 #include "http.h"
 
 #include <netdb.h>
+#include <limits>
 
 // NOTE: Reference counting SPDY streams.
 //
@@ -68,8 +69,8 @@ initiate_client_request(
 
     stream->vconn = TSHttpConnect(addr);
     if (stream->vconn) {
-        TSVConnRead(stream->vconn, contp, stream->input.buffer, INT64_MAX);
-        TSVConnWrite(stream->vconn, contp, stream->output.reader, INT64_MAX);
+        TSVConnRead(stream->vconn, contp, stream->input.buffer, std::numeric_limits<int64_t>::max());
+        TSVConnWrite(stream->vconn, contp, stream->output.reader, std::numeric_limits<int64_t>::max());
     }
 
     return true;
@@ -118,7 +119,7 @@ static bool
 read_http_headers(spdy_io_stream * stream)
 {
     if (TSIsDebugTagSet("spdy.http")) {
-        debug_http("[%p/%u] received %"PRId64" header bytes",
+        debug_http("[%p/%u] received %" PRId64 " header bytes",
                 stream, stream->stream_id,
                 TSIOBufferReaderAvail(stream->input.reader));
     }
@@ -152,7 +153,7 @@ spdy_stream_io(TSCont contp, TSEvent ev, void * edata)
         return TS_EVENT_NONE;
     }
 
-    spdy_io_stream::lock_type::scoped_lock lock(stream->mutex);
+    spdy_io_stream::lock_type::scoped_lock lock(stream->lock);
 
     switch (ev) {
     case TS_EVENT_HOST_LOOKUP:

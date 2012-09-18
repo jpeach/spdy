@@ -49,10 +49,10 @@ template <typename T> void release(T * ptr) {
 }
 
 template <typename LockType>
-struct scoped_lock
+struct scoped_lock_type
 {
-    scoped_lock(LockType& l) : lock(l) { lock.lock(); }
-    ~scoped_lock() { lock.unlock(); }
+    scoped_lock_type(LockType& l) : lock(l) { lock.lock(); }
+    ~scoped_lock_type() { lock.unlock(); }
 
 private:
     LockType& lock;
@@ -71,7 +71,7 @@ struct mutex
     void lock()     { pthread_mutex_lock(&this->mtx); }
     void unlock()   { pthread_mutex_unlock(&this->mtx); }
 
-    typedef scoped_lock<mutex> scoped_lock;
+    typedef scoped_lock_type<struct mutex> scoped_lock;
 
 private:
     pthread_mutex_t mtx;

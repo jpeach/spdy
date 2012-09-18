@@ -112,7 +112,7 @@ struct spdy_io_stream : public countable
 
     // NOTE: The caller *must* hold the stream lock when calling open() or
     // close(), or processing any stream events.
-    lock_type               mutex;
+    lock_type               lock;
 
     spdy::protocol_version  version;
     TSAction                action;

@@ -66,7 +66,7 @@ spdy_send_syn_reply(
     } msg;
 
     uint8_t     buffer[
-        MAX(spdy::message_header::size, spdy::syn_stream_message::size)];
+        MAX((unsigned)spdy::message_header::size, (unsigned)spdy::syn_stream_message::size)];
     size_t      nbytes = 0;
 
     std::vector<uint8_t> hdrs;

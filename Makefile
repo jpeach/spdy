@@ -13,18 +13,29 @@
 #  limitations under the License.
 
 TSROOT := /opt/ats
-
+PLATFORM := $(shell uname)
 TSXS := $(TSROOT)/bin/tsxs
 SUDO := sudo
-CXX := xcrun clang++
 
+ifeq ($(PLATFORM),Linux)
+CXX := g++-4.7
+CXXFLAGS := -std=c++11 -g -Wall -Wextra \
+	-fpic \
+	-Wno-unused-but-set-variable
+LDFLAGS = -fpic
+else ifeq ($(PLATFORM),Darwin)
+CXX := xcrun clang++
 CXXFLAGS := -std=c++0x -stdlib=libc++ -g -Wall -Wextra
 LDFLAGS := -stdlib=libc++ -g
-CPPFLAGS := -I$(TSROOT)/include -Isrc/lib
+endif
+
+CPPFLAGS := -D__STDC_FORMAT_MACROS=1 -I$(TSROOT)/include -Isrc/lib
 
 LinkProgram = $(CXX) $(LDFLAGS) -o $@ $^
 LinkBundle = $(CXX) $(LDFLAGS) \
-     -bundle -Wl,-bundle_loader,$(TSROOT)/bin/traffic_server -o $@ $^
+	-bundle -Wl,-bundle_loader,$(TSROOT)/bin/traffic_server -o $@ $^
+LinkShared = $(CXX) $(LDFLAGS) \
+	-shared -o $@ $^
 
 Spdy_Objects := \
 	src/ts/http.o \
@@ -61,7 +72,12 @@ install: spdy.so
 #$(SUDO) $(TSROOT)/bin/trafficserver restart
 
 spdy.so: $(Spdy_Objects) $(LibSpdy_Objects) $(LibPlatform_Objects)
+ifeq ($(PLATFORM),Darwin)
 	$(LinkBundle) -lz
+else
+	$(LinkShared) -lz
+endif
+
 
 test.zlib: $(Zlib_Test_Objects) $(LibSpdy_Objects)
 	$(LinkProgram) -lz

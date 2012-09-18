@@ -19,6 +19,7 @@
 
 #include <inttypes.h>
 #include <zlib.h>
+#include <string.h>
 
 namespace spdy {
 

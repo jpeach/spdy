@@ -17,6 +17,7 @@
 #include <ts/ts.h>
 #include <spdy/spdy.h>
 #include "io.h"
+#include <memory>
 
 spdy_io_control::spdy_io_control(TSVConn v)
     : vconn(v), input(), output(), streams(), last_stream_id(0)
@@ -75,7 +76,7 @@ spdy_io_control::destroy_stream(unsigned stream_id)
 {
     stream_map_type::iterator ptr(streams.find(stream_id));
     if (ptr != streams.end()) {
-        spdy_io_stream::lock_type::scoped_lock lock(ptr->second->mutex);
+        spdy_io_stream::lock_type::scoped_lock lock(ptr->second->lock);
         release(ptr->second);
         streams.erase(ptr);
     }

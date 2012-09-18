@@ -23,6 +23,7 @@
 #include "protocol.h"
 
 #include <getopt.h>
+#include <limits>
 
 static bool use_system_resolver = false;
 
@@ -112,7 +113,7 @@ recv_syn_stream(
         options = spdy_io_stream::open_with_system_resolver;
     }
 
-    spdy_io_stream::lock_type::scoped_lock lock(stream->mutex);
+    spdy_io_stream::lock_type::scoped_lock lock(stream->lock);
     if (!stream->open(kvblock, options)) {
         io->destroy_stream(stream->stream_id);
     }
@@ -220,7 +221,7 @@ next_frame:
     if (nbytes < spdy::message_header::size) {
         // We should never get here, because we check for space before
         // entering. Unfortunately this does happen :(
-        debug_plugin("short read %lld bytes, expected at least %u, real count %zu",
+        debug_plugin("short read %" PRId64 " bytes, expected at least %u, real count %zu",
                 nbytes, spdy::message_header::size,
                 count_bytes_available(io->input.buffer, io->input.reader));
         return;
@@ -326,8 +327,8 @@ spdy_accept_io(TSCont contp, TSEvent ev, void * edata)
         // XXX is contp leaked here?
         contp = TSContCreate(spdy_vconn_io, TSMutexCreate());
         TSContDataSet(contp, io);
-        read_vio = TSVConnRead(vconn, contp, io->input.buffer, INT64_MAX);
-        write_vio = TSVConnWrite(vconn, contp, io->output.reader, INT64_MAX);
+        read_vio = TSVConnRead(vconn, contp, io->input.buffer, std::numeric_limits<int64_t>::max());
+        write_vio = TSVConnWrite(vconn, contp, io->output.reader, std::numeric_limits<int64_t>::max());
         debug_protocol("accepted new SPDY session %p", io);
         break;
     default:
