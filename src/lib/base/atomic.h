@@ -18,6 +18,7 @@
 #define ATOMIC_H_A14B912F_B134_4D38_8EC1_51C50EC0FBE6
 
 #include <mutex>
+#include <atomic>
 #include <thread>
 
 // Increment @val by @amt, returning the previous value.
@@ -32,19 +33,22 @@ struct countable
     virtual ~countable() {}
 
 private:
-    volatile int refcnt;
+    std::atomic<unsigned> refcnt;
 
     template <typename T> friend T * retain(T * ptr);
     template <typename T> friend void release(T * ptr);
 };
 
 template <typename T> T * retain(T * ptr) {
-    atomic_increment(ptr->refcnt, 1);
+    std::atomic_fetch_add_explicit(&ptr->refcnt, 1u, std::memory_order_acq_rel);
     return ptr;
 }
 
 template <typename T> void release(T * ptr) {
-    if (atomic_decrement(ptr->refcnt, 1) == 0) {
+    unsigned count = std::atomic_fetch_sub_explicit(&ptr->refcnt, 1u, std::memory_order_acq_rel);
+    // If the previous refcount was 1, then we have decremented it to 0. We
+    // want to delete in that case.
+    if (count == 1) {
         delete ptr;
     }
 }
