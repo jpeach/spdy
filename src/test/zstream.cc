@@ -19,6 +19,9 @@
 #include <assert.h>
 #include <string.h>
 #include <vector>
+#include <array>
+#include <random>
+#include <algorithm>
 
 #define CHUNKSIZE 128
 
@@ -62,19 +65,19 @@ void roundtrip()
 void shortbuf()
 {
     ssize_t ret;
-    char text[CHUNKSIZE];
     char outbuf[8];
-
+    std::minstd_rand0 rand0;
     spdy::zstream<spdy::compress> zin;
+    std::array<std::minstd_rand0::result_type, CHUNKSIZE> text;
 
     // random fill so it doesn't compress well
-    arc4random_buf(text, sizeof(text));
+    std::for_each(text.begin(), text.end(),
+           [&rand0](decltype(text)::value_type& v) { v = rand0(); } );
 
-    zin.input(text, sizeof(text));
+    zin.input(text.data(), text.size() * sizeof(decltype(text)::value_type));
     do {
         ret = zin.consume(outbuf, sizeof(outbuf));
     } while (ret != 0);
-
 }
 
 void compress_kvblock()
